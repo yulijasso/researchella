@@ -225,7 +225,32 @@ export default function Chat() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    // Check file size before uploading
+    const fileSizeMB = file.size / (1024 * 1024);
+    const maxSizeMB = 100;
+
+    if (fileSizeMB > maxSizeMB) {
+      toaster.create({
+        title: "File Too Large",
+        description: `File size is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB.`,
+        status: "error",
+        duration: 7000,
+      });
+      event.target.value = "";
+      return;
+    }
+
     setIsUploading(true);
+
+    // Show progress toast for large files (>10MB)
+    if (fileSizeMB > 10) {
+      toaster.create({
+        title: "Uploading Large File",
+        description: `Processing ${file.name} (${fileSizeMB.toFixed(1)}MB). This may take a few minutes...`,
+        status: "info",
+        duration: 5000,
+      });
+    }
 
     try {
       const formData = new FormData();
@@ -238,7 +263,8 @@ export default function Chat() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to upload file");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Upload failed with status ${response.status}`);
       }
 
       const data = await response.json();
@@ -284,12 +310,27 @@ export default function Chat() {
       event.target.value = "";
     } catch (error) {
       console.error("Upload error:", error);
+
+      // Provide specific error messages
+      let errorMessage = error.message || "Failed to process the document.";
+
+      if (errorMessage.includes('too large') || errorMessage.includes('LIMIT_FILE_SIZE')) {
+        errorMessage = `File is too large. Maximum size is ${maxSizeMB}MB. Your file is ${fileSizeMB.toFixed(1)}MB.`;
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+        errorMessage = `Upload timed out. The file may be too large or complex. Try a smaller file or contact support.`;
+      } else if (fileSizeMB > 50) {
+        errorMessage = `Failed to process large file (${fileSizeMB.toFixed(1)}MB). ${errorMessage}`;
+      }
+
       toaster.create({
         title: "Upload Failed",
-        description: "Failed to process the document. If it's a PDF with custom fonts, try uploading the paper from its URL instead.",
+        description: errorMessage,
         status: "error",
         duration: 7000,
       });
+
+      // Reset file input
+      event.target.value = "";
     } finally {
       setIsUploading(false);
     }

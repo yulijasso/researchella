@@ -472,15 +472,40 @@ export default async function handler(req, res) {
     const form = formidable({
       uploadDir,
       keepExtensions: true,
-      maxFileSize: 100 * 1024 * 1024, // 100MB per file
+      maxFileSize: 100 * 1024 * 1024, // 100MB per file - supports medical textbooks
       maxTotalFileSize: 500 * 1024 * 1024, // 500MB total for up to 50 files
       maxFiles: 50, // Allow up to 50 files
+      multiples: false, // Single file upload
+      allowEmptyFiles: false,
+      minFileSize: 1, // Must have content
+      hashAlgorithm: false, // Skip hashing to speed up large file uploads
+      enabledPlugins: ['octetstream', 'multipart', 'json'],
     });
 
     const [fields, files] = await new Promise((resolve, reject) => {
+      // Add progress tracking for large files
+      form.on('progress', (bytesReceived, bytesExpected) => {
+        const progress = Math.round((bytesReceived / bytesExpected) * 100);
+        if (progress % 10 === 0) { // Log every 10%
+          console.log(`Upload progress: ${progress}% (${Math.round(bytesReceived / 1024 / 1024)}MB / ${Math.round(bytesExpected / 1024 / 1024)}MB)`);
+        }
+      });
+
+      form.on('fileBegin', (name, file) => {
+        console.log(`Starting file upload: ${file.originalFilename}`);
+      });
+
       form.parse(req, (err, fields, files) => {
-        if (err) reject(err);
-        else resolve([fields, files]);
+        if (err) {
+          console.error('Formidable parse error:', err);
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            reject(new Error('File too large. Maximum size is 100MB.'));
+          } else {
+            reject(err);
+          }
+        } else {
+          resolve([fields, files]);
+        }
       });
     });
 
