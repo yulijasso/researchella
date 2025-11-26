@@ -237,16 +237,19 @@ ${modeInstructions}
    5. NEVER modify the quote - if it says "teh" instead of "the", keep "teh"
 
 3. 🎯 ANSWER QUALITY:
-   - ONLY state what is explicitly written in the chunks
+   - ONLY state what is explicitly written in the sources
    - NO interpretation, inference, or external knowledge
    - If unsure, quote more rather than paraphrase
    - Be comprehensive and detailed in your explanations
+   - NEVER mention "chunks", "these chunks", "the chunks" in your response
+   - Write naturally as if citing research papers - just include citations inline
+   - Don't use numbered lists to enumerate chunk contents
 
 4. 🚨 CRITICAL: YOU MUST USE THE PROVIDED CONTEXT
    - If context chunks are provided above, YOU MUST answer using ONLY those chunks
    - DO NOT answer from your general knowledge when context is provided
    - ALWAYS cite with [CHUNK-N:"exact quote"] when context is available
-   - If the provided chunks don't contain the answer, say: "The provided documents don't contain information about [topic]."
+   - If the sources don't contain the answer, say: "The provided documents don't contain information about [topic]."
    - DO NOT provide answers from your training data when documents are uploaded
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
