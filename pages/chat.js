@@ -24,7 +24,7 @@ import {
   InputGroup,
 } from "@chakra-ui/react";
 import Image from "next/image";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2 } from "react-icons/fi";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2, FiUser } from "react-icons/fi";
 import { SiGoogledrive } from "react-icons/si";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useColorMode } from "@/components/ui/color-mode";
