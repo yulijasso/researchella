@@ -24,7 +24,7 @@ import {
   InputGroup,
 } from "@chakra-ui/react";
 import Image from "next/image";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud } from "react-icons/fi";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2 } from "react-icons/fi";
 import { SiGoogledrive } from "react-icons/si";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useColorMode } from "@/components/ui/color-mode";
@@ -94,6 +94,11 @@ export default function Chat() {
   const [isLoadingOneDrive, setIsLoadingOneDrive] = useState(false); // Loading state for OneDrive
   const [showWebsiteInput, setShowWebsiteInput] = useState(false); // Show website URL input
   const [showYoutubeInput, setShowYoutubeInput] = useState(false); // Show YouTube URL input
+  const [isEditingSessionName, setIsEditingSessionName] = useState(false); // Editing session name
+  const [editedSessionName, setEditedSessionName] = useState(""); // New session name input
+  const [fileMenuIndex, setFileMenuIndex] = useState(null); // Which file's menu is open
+  const [renameFileIndex, setRenameFileIndex] = useState(null); // Which file is being renamed
+  const [renameFileValue, setRenameFileValue] = useState(""); // New file name input
 
   // Autocomplete for @mentions
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -892,6 +897,54 @@ export default function Chat() {
         });
       }
     }
+  };
+
+  // Handle session name update
+  const handleSessionNameUpdate = async () => {
+    if (!editedSessionName.trim() || editedSessionName === sessionName) {
+      setIsEditingSessionName(false);
+      return;
+    }
+    try {
+      const response = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, name: editedSessionName }),
+      });
+      if (response.ok) {
+        setSessionName(editedSessionName);
+        toaster.create({ title: "Session renamed", type: "success", duration: 2000 });
+      }
+    } catch (error) {
+      console.error('Error updating session name:', error);
+    }
+    setIsEditingSessionName(false);
+  };
+
+  // Handle file rename
+  const handleFileRename = async (index) => {
+    if (!renameFileValue.trim() || renameFileValue === uploadedFiles[index].name) {
+      setRenameFileIndex(null);
+      return;
+    }
+    const file = uploadedFiles[index];
+    try {
+      const response = await fetch('/api/files', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: file.id, name: renameFileValue }),
+      });
+      if (response.ok) {
+        const updatedFiles = [...uploadedFiles];
+        updatedFiles[index] = { ...file, name: renameFileValue };
+        setUploadedFiles(updatedFiles);
+        toaster.create({ title: "Source renamed", type: "success", duration: 2000 });
+      }
+    } catch (error) {
+      console.error('Error renaming file:', error);
+    }
+    setRenameFileIndex(null);
+    setFileMenuIndex(null);
   };
 
   const handleWebSearch = async (query) => {
@@ -1909,12 +1962,18 @@ export default function Chat() {
     let match;
     while ((match = mentionRegex.exec(messageText)) !== null) {
       const mentionedFile = match[1] || match[2];
-      // Check if this file exists in uploaded files
-      const exists = uploadedFiles.some(f =>
+      // Check if this file exists in uploaded files and get the actual source name
+      const matchingFile = uploadedFiles.find(f =>
         f.name.toLowerCase().includes(mentionedFile.toLowerCase())
       );
-      if (exists) {
-        mentions.push(mentionedFile);
+      if (matchingFile) {
+        // Extract the actual source name for Pinecone filtering
+        // For web/youtube sources, name is stored as "Title||URL", source is just "Title"
+        // For PDFs/images, name is the filename which matches source
+        const sourceName = matchingFile.name.includes('||')
+          ? matchingFile.name.split('||')[0]
+          : matchingFile.name;
+        mentions.push(sourceName);
       }
     }
 
@@ -2575,8 +2634,30 @@ export default function Chat() {
                 />
               </Flex>
               <VStack gap={4} align="stretch">
-                {/* Session Name */}
-                <Heading size="md">{sessionName || "Chat Session"}</Heading>
+                {/* Session Name - Click to Edit */}
+                {isEditingSessionName ? (
+                  <Input
+                    value={editedSessionName}
+                    onChange={(e) => setEditedSessionName(e.target.value)}
+                    onBlur={handleSessionNameUpdate}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSessionNameUpdate()}
+                    autoFocus
+                    size="md"
+                    fontWeight="bold"
+                  />
+                ) : (
+                  <Heading
+                    size="md"
+                    cursor="pointer"
+                    _hover={{ opacity: 0.7 }}
+                    onClick={() => {
+                      setEditedSessionName(sessionName || "Chat Session");
+                      setIsEditingSessionName(true);
+                    }}
+                  >
+                    {sessionName || "Chat Session"}
+                  </Heading>
+                )}
 
                 {/* Back to Sessions */}
                 <Button
@@ -2603,31 +2684,81 @@ export default function Chat() {
                         <HStack key={index} gap={2} p={2} borderRadius="md" bg="gray.50" _dark={{ bg: "gray.800", borderColor: "gray.700" }} border="1px solid" borderColor="transparent" position="relative" role="group">
                           <FiFile size={16} />
                           <VStack align="start" gap={0} flex={1}>
-                            <Text fontSize="sm" noOfLines={1}>
-                              {file.name}
-                            </Text>
+                            {renameFileIndex === index ? (
+                              <Input
+                                value={renameFileValue}
+                                onChange={(e) => setRenameFileValue(e.target.value)}
+                                onBlur={() => handleFileRename(index)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleFileRename(index)}
+                                autoFocus
+                                size="xs"
+                                fontSize="sm"
+                              />
+                            ) : (
+                              <Text fontSize="sm" noOfLines={1}>{file.name}</Text>
+                            )}
                             {file.chunks && (
-                              <Text fontSize="xs" color="gray.500">
-                                {file.chunks} chunks
-                              </Text>
+                              <Text fontSize="xs" color="gray.500">{file.chunks} chunks</Text>
                             )}
                           </VStack>
-                          <IconButton
-                            icon={<FiX />}
-                            size="xs"
-                            variant="ghost"
-                            aria-label="Delete file"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteFile(index);
-                            }}
-                            color="gray.500"
-                            _hover={{ color: "gray.900", bg: "gray.200" }}
-                            _dark={{ color: "gray.400", _hover: { color: "gray.100", bg: "gray.600" } }}
-                            minW="auto"
-                            h="auto"
-                            p={1}
-                          />
+                          {/* 3-dots menu */}
+                          <Box position="relative">
+                            <IconButton
+                              size="xs"
+                              variant="ghost"
+                              aria-label="File options"
+                              onClick={(e) => { e.stopPropagation(); setFileMenuIndex(fileMenuIndex === index ? null : index); }}
+                              color="gray.400"
+                              _hover={{ color: "gray.600", bg: "gray.200" }}
+                              _dark={{ color: "gray.500", _hover: { color: "gray.200", bg: "gray.700" } }}
+                              minW="auto"
+                              h="auto"
+                              p={1}
+                            >
+                              <FiMoreVertical />
+                            </IconButton>
+                            {fileMenuIndex === index && (
+                              <Box
+                                position="absolute"
+                                right={0}
+                                top="100%"
+                                bg="white"
+                                border="1px solid"
+                                borderColor="gray.200"
+                                _dark={{ bg: "gray.800", borderColor: "gray.700" }}
+                                borderRadius="md"
+                                shadow="md"
+                                zIndex={10}
+                                minW="100px"
+                              >
+                                <VStack gap={0} align="stretch">
+                                  <Button
+                                    size="xs"
+                                    variant="ghost"
+                                    leftIcon={<FiEdit2 />}
+                                    justifyContent="flex-start"
+                                    onClick={() => { setRenameFileValue(file.name); setRenameFileIndex(index); setFileMenuIndex(null); }}
+                                    borderRadius={0}
+                                    w="full"
+                                  >
+                                    Rename
+                                  </Button>
+                                  <Button
+                                    size="xs"
+                                    variant="ghost"
+                                    leftIcon={<FiTrash2 />}
+                                    justifyContent="flex-start"
+                                    onClick={() => { handleDeleteFile(index); setFileMenuIndex(null); }}
+                                    borderRadius={0}
+                                    w="full"
+                                    color="red.500"
+                                  >
+                                    Delete
+                                  </Button>
+                                </VStack>
+                              </Box>
+                            )}
+                          </Box>
                         </HStack>
                       ))}
                     </VStack>
@@ -3128,19 +3259,17 @@ export default function Chat() {
                         <>
                           {msg.role === "assistant" && (
                             <Box
-                              w="32px"
-                              h="32px"
+                              w="28px"
+                              h="28px"
                               borderRadius="full"
-                              bg="gradient-to-br from-blue-500 to-purple-600"
+                              bg="linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)"
                               display="flex"
                               alignItems="center"
                               justifyContent="center"
                               flexShrink={0}
                               mt={1}
                             >
-                              <Text fontSize="sm" fontWeight="bold" color="white">
-                                AI
-                              </Text>
+                              <Text fontSize="sm" color="white">✦</Text>
                             </Box>
                           )}
                           <Box
@@ -3151,7 +3280,7 @@ export default function Chat() {
                                 : "white"
                             }
                             _dark={{
-                              bg: msg.role === "user" ? "gray.700" : "gray.900"
+                              bg: msg.role === "user" ? "gray.700" : "gray.800"
                             }}
                             px={4}
                             py={3}
@@ -3180,19 +3309,17 @@ export default function Chat() {
                           </Box>
                           {msg.role === "user" && (
                             <Box
-                              w="32px"
-                              h="32px"
+                              w="28px"
+                              h="28px"
                               borderRadius="full"
-                              bg="gradient-to-br from-green-400 to-emerald-600"
+                              bg="linear-gradient(135deg, #10b981 0%, #059669 100%)"
                               display="flex"
                               alignItems="center"
                               justifyContent="center"
                               flexShrink={0}
                               mt={1}
                             >
-                              <Text fontSize="xs" fontWeight="bold" color="white">
-                                U
-                              </Text>
+                              <Box as={FiUser} color="white" size="14px" />
                             </Box>
                           )}
                         </>
