@@ -1,5 +1,6 @@
 import Head from "next/head";
-import { useState, useEffect } from "react";
+import Script from "next/script";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import dynamic from 'next/dynamic';
 import {
@@ -23,7 +24,9 @@ import {
   InputGroup,
 } from "@chakra-ui/react";
 import Image from "next/image";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText } from "react-icons/fi";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube } from "react-icons/fi";
+import { SiGoogledrive } from "react-icons/si";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useColorMode } from "@/components/ui/color-mode";
 import { toaster } from "@/components/ui/toaster";
 import { useAuth } from "@/contexts/AuthContext";
@@ -82,6 +85,12 @@ export default function Chat() {
   const [webSearchResults, setWebSearchResults] = useState([]); // Web search results
   const [isSearchingWeb, setIsSearchingWeb] = useState(false); // Loading state for web search
   const [isDragging, setIsDragging] = useState(false); // Drag-and-drop state
+  const [pasteTextInput, setPasteTextInput] = useState(""); // Paste text input
+  const [showPasteText, setShowPasteText] = useState(false); // Show paste text area
+  const [showSourcesPanel, setShowSourcesPanel] = useState(true); // Toggle sources panel
+  const [showStudioPanel, setShowStudioPanel] = useState(true); // Toggle studio panel
+  const [isGoogleApiLoaded, setIsGoogleApiLoaded] = useState(false); // Google API loaded state
+  const [isLoadingGoogleDrive, setIsLoadingGoogleDrive] = useState(false); // Loading state for Google Drive
 
   // Autocomplete for @mentions
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -116,6 +125,172 @@ export default function Chat() {
       toggleColorMode(); // Set to light mode for retro
     }
   };
+
+  // Google Drive Picker handler
+  const handleGoogleDrivePicker = useCallback(async () => {
+    // Check if Google API credentials are configured
+    const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_API_KEY) {
+      toaster.create({
+        title: "Configuration Required",
+        description: "Google Drive integration requires API credentials. Please contact support.",
+        type: "warning",
+        duration: 5000,
+      });
+      return;
+    }
+
+    if (!sessionId) {
+      toaster.create({
+        title: "No Session",
+        description: "Please wait for the session to load.",
+        type: "warning",
+        duration: 3000,
+      });
+      return;
+    }
+
+    setIsLoadingGoogleDrive(true);
+
+    try {
+      // Load Google API if not already loaded
+      if (!window.gapi) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://apis.google.com/js/api.js';
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.appendChild(script);
+        });
+      }
+
+      // Load gapi picker (not client - we only need picker)
+      await new Promise((resolve) => {
+        window.gapi.load('picker', resolve);
+      });
+
+      // Get access token using Google Identity Services
+      if (!window.google?.accounts?.oauth2) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://accounts.google.com/gsi/client';
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.appendChild(script);
+        });
+      }
+
+      // Request access token
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: 'https://www.googleapis.com/auth/drive.readonly',
+        callback: async (tokenResponse) => {
+          if (tokenResponse.error) {
+            console.error('Token error:', tokenResponse);
+            toaster.create({
+              title: "Authentication Failed",
+              description: "Could not authenticate with Google. Please try again.",
+              type: "error",
+              duration: 5000,
+            });
+            setIsLoadingGoogleDrive(false);
+            return;
+          }
+
+          const accessToken = tokenResponse.access_token;
+
+          // Create and show the picker
+          const picker = new window.google.picker.PickerBuilder()
+            .addView(new window.google.picker.DocsView()
+              .setIncludeFolders(false)
+              .setMimeTypes('application/pdf,application/vnd.google-apps.document,application/vnd.google-apps.spreadsheet,text/plain,text/csv,application/json'))
+            .addView(new window.google.picker.DocsView()
+              .setIncludeFolders(true)
+              .setSelectFolderEnabled(false))
+            .setOAuthToken(accessToken)
+            .setDeveloperKey(GOOGLE_API_KEY)
+            .setCallback(async (data) => {
+              if (data.action === window.google.picker.Action.PICKED) {
+                const file = data.docs[0];
+                console.log('Selected file:', file);
+
+                setIsUploading(true);
+                toaster.create({
+                  title: "Importing from Google Drive",
+                  description: `Processing "${file.name}"...`,
+                  type: "info",
+                  duration: 3000,
+                });
+
+                try {
+                  const response = await fetch('/api/google-drive-download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      fileId: file.id,
+                      fileName: file.name,
+                      mimeType: file.mimeType,
+                      accessToken: accessToken,
+                      sessionId: sessionId,
+                    }),
+                  });
+
+                  const result = await response.json();
+
+                  if (!response.ok) {
+                    throw new Error(result.error || 'Failed to import file');
+                  }
+
+                  setUploadedFiles([...uploadedFiles, {
+                    id: result.fileId,
+                    name: file.name,
+                    chunks: result.chunks,
+                    type: 'google-drive',
+                  }]);
+
+                  toaster.create({
+                    title: "File Imported",
+                    description: `Successfully imported "${file.name}" (${result.chunks} chunks)`,
+                    type: "success",
+                    duration: 4000,
+                  });
+                } catch (error) {
+                  console.error('Google Drive import error:', error);
+                  toaster.create({
+                    title: "Import Failed",
+                    description: error.message,
+                    type: "error",
+                    duration: 5000,
+                  });
+                } finally {
+                  setIsUploading(false);
+                }
+              }
+              setIsLoadingGoogleDrive(false);
+            })
+            .setTitle('Select a file from Google Drive')
+            .build();
+
+          picker.setVisible(true);
+        },
+      });
+
+      // Request the token
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+
+    } catch (error) {
+      console.error('Google Picker error:', error);
+      toaster.create({
+        title: "Error",
+        description: "Failed to open Google Drive picker. Please try again.",
+        type: "error",
+        duration: 5000,
+      });
+      setIsLoadingGoogleDrive(false);
+    }
+  }, [sessionId, uploadedFiles]);
 
   // Load session data from Supabase
   useEffect(() => {
@@ -163,15 +338,35 @@ export default function Chat() {
           if (filesResponse.ok) {
             const { files } = await filesResponse.json();
             // Map database fields to frontend format
-            const mappedFiles = (files || []).map(f => ({
-              id: f.id,  // Include ID for deletion
-              name: f.name,
-              chunks: f.chunks,
-              type: f.type,
-              isPDF: f.type === 'application/pdf' || f.name?.endsWith('.pdf'),
-              pdfData: f.pdf_data,
-              pages: f.pages,
-            }));
+            const mappedFiles = (files || []).map(f => {
+              // Parse name field for youtube and url types (format: "title||id_or_url")
+              let name = f.name;
+              let videoId = null;
+              let url = null;
+
+              if (f.type === 'youtube' && f.name?.includes('||')) {
+                const parts = f.name.split('||');
+                name = parts[0];
+                videoId = parts[1];
+                url = `https://www.youtube.com/watch?v=${videoId}`;
+              } else if (f.type === 'url' && f.name?.includes('||')) {
+                const parts = f.name.split('||');
+                name = parts[0];
+                url = parts[1];
+              }
+
+              return {
+                id: f.id,  // Include ID for deletion
+                name: name,
+                chunks: f.chunks,
+                type: f.type,
+                isPDF: f.type === 'application/pdf' || f.name?.endsWith('.pdf'),
+                pdfData: f.pdf_data,
+                pages: f.pages,
+                videoId: videoId,
+                url: url,
+              };
+            });
             setUploadedFiles(mappedFiles);
           }
         } catch (error) {
@@ -213,46 +408,84 @@ export default function Chat() {
     },
   ];
 
+  // Check if URL is a YouTube link
+  const isYouTubeUrl = (url) => {
+    return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)/.test(url);
+  };
+
   const handleUrlSubmit = async (urlToSubmit) => {
-    const url = urlToSubmit || urlInput;
+    // Handle case where urlToSubmit might be an event object from onClick
+    const url = (typeof urlToSubmit === 'string' ? urlToSubmit : null) || urlInput;
     if (!url || !url.trim()) return;
+
+    // Check if it's a YouTube URL (defined outside try for error handling scope)
+    const isYouTube = isYouTubeUrl(url);
+    const apiEndpoint = isYouTube ? "/api/add-youtube-source" : "/api/scrape";
 
     setIsUploading(true);
 
     try {
-      const response = await fetch("/api/scrape", {
+
+      const response = await fetch(apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           url: url,
-          sessionId: sessionId  // Add session ID for isolation
+          sessionId: sessionId
         }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to scrape URL");
+        const errorData = await response.json();
+        const errorMessage = errorData.error || (isYouTube ? "Failed to fetch YouTube transcript" : "Failed to scrape URL");
+        toaster.create({
+          title: isYouTube ? "Failed to Add YouTube Video" : "Failed to Add Paper",
+          description: errorMessage,
+          type: "error",
+          duration: 7000,
+        });
+        setUrlInput("");
+        setIsUploading(false);
+        return;
       }
 
       const data = await response.json();
-      setUploadedFiles([...uploadedFiles, { name: data.title, chunks: data.chunksAdded, url: url }]);
+      const chunks = data.chunks || data.chunksAdded;
+
+      setUploadedFiles([...uploadedFiles, {
+        name: data.title,
+        chunks: chunks,
+        url: url,
+        type: isYouTube ? 'youtube' : 'url',
+        // YouTube-specific data
+        ...(isYouTube && {
+          videoId: data.videoId,
+          author: data.author,
+          transcript: data.transcript,
+          thumbnail: data.thumbnail,
+        })
+      }]);
 
       // Add system message about successful scraping
       setMessages([
         ...messages,
         {
           role: "system",
-          content: `Successfully scraped "${data.title}" from ${url} (${data.chunksAdded} chunks added to knowledge base)`,
+          content: isYouTube
+            ? `Successfully added YouTube video "${data.title}" by ${data.author || 'Unknown'} (${chunks} chunks from transcript)`
+            : `Successfully scraped "${data.title}" from ${url} (${chunks} chunks added to knowledge base)`,
         },
       ]);
 
       // Show success toast
       toaster.create({
-        title: "Paper Added Successfully",
-        description: `"${data.title}" has been added to your knowledge base (${data.chunksAdded} chunks)`,
-        status: "success",
+        title: isYouTube ? "YouTube Video Added" : "Paper Added Successfully",
+        description: isYouTube
+          ? `"${data.title}" transcript has been added (${chunks} chunks)`
+          : `"${data.title}" has been added to your knowledge base (${chunks} chunks)`,
+        type: "success",
         duration: 5000,
       });
 
@@ -262,11 +495,67 @@ export default function Chat() {
       setUrlInput("");
       setShowUrlInput(false);
     } catch (error) {
-      console.error("URL scraping error:", error);
+      console.error("URL processing error:", error);
       toaster.create({
-        title: "Failed to Add Paper",
-        description: error.message || "Could not scrape the URL. Please try a different link or upload the PDF directly.",
-        status: "error",
+        title: isYouTube ? "Failed to Add YouTube Video" : "Failed to Add Paper",
+        description: error.message || "Could not process the URL. Please try a different link.",
+        type: "error",
+        duration: 7000,
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handlePasteTextSubmit = async () => {
+    if (!pasteTextInput || !pasteTextInput.trim()) return;
+
+    setIsUploading(true);
+
+    try {
+      const response = await fetch("/api/add-text-source", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: pasteTextInput.trim(),
+          sessionId: sessionId,
+          title: `Pasted text (${new Date().toLocaleString()})`,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to add text");
+      }
+
+      const data = await response.json();
+      setUploadedFiles([...uploadedFiles, { name: data.title || "Pasted text", chunks: data.chunks, type: "text" }]);
+
+      setMessages([
+        ...messages,
+        {
+          role: "system",
+          content: `Successfully added pasted text (${data.chunks} chunks added to knowledge base)`,
+        },
+      ]);
+
+      toaster.create({
+        title: "Text Added Successfully",
+        description: `Pasted text has been added to your knowledge base (${data.chunks} chunks)`,
+        type: "success",
+        duration: 5000,
+      });
+
+      setPasteTextInput("");
+      setShowPasteText(false);
+    } catch (error) {
+      console.error("Paste text error:", error);
+      toaster.create({
+        title: "Failed to Add Text",
+        description: error.message || "Could not add the text. Please try again.",
+        type: "error",
         duration: 7000,
       });
     } finally {
@@ -286,7 +575,7 @@ export default function Chat() {
       toaster.create({
         title: "File Too Large",
         description: `File size is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB.`,
-        status: "error",
+        type: "error",
         duration: 7000,
       });
       event.target.value = "";
@@ -355,7 +644,7 @@ export default function Chat() {
       toaster.create({
         title: "Document Uploaded Successfully",
         description: `"${file.name}" has been processed (${data.chunksAdded} chunks)${data.method === 'GPT-4 Vision' ? ' using GPT-4 Vision' : ''}`,
-        status: "success",
+        type: "success",
         duration: 5000,
       });
 
@@ -381,7 +670,7 @@ export default function Chat() {
       toaster.create({
         title: "Upload Failed",
         description: errorMessage,
-        status: "error",
+        type: "error",
         duration: 7000,
       });
 
@@ -404,7 +693,7 @@ export default function Chat() {
       ...messages,
       {
         role: "system",
-        content: `🗑️ Removed "${fileToDelete.name}" from sources`,
+        content: `Removed "${fileToDelete.name}" from sources`,
       },
     ]);
 
@@ -628,7 +917,7 @@ export default function Chat() {
       toaster.create({
         title: "Images Uploaded",
         description: `${uploadedImages.length} image(s) ready to send`,
-        status: "success",
+        type: "success",
         duration: 3000,
       });
 
@@ -638,7 +927,7 @@ export default function Chat() {
       toaster.create({
         title: "Upload Failed",
         description: error.message,
-        status: "error",
+        type: "error",
         duration: 5000,
       });
     } finally {
@@ -675,7 +964,7 @@ export default function Chat() {
       toaster.create({
         title: "Audio Overview Generated",
         description: "Your podcast-style discussion is ready!",
-        status: "success",
+        type: "success",
         duration: 3000,
       });
     } catch (error) {
@@ -683,7 +972,7 @@ export default function Chat() {
       toaster.create({
         title: "Generation Failed",
         description: error.message || "Could not generate audio overview",
-        status: "error",
+        type: "error",
         duration: 5000,
       });
     } finally {
@@ -745,7 +1034,7 @@ export default function Chat() {
       toaster.create({
         title: `${type.charAt(0).toUpperCase() + type.slice(1)} Ready!`,
         description: type === 'flashcards' ? `${data.flashcards?.length || 0} flashcards ready to study` : "Your study material is ready!",
-        status: "success",
+        type: "success",
         duration: 3000,
       });
     } catch (error) {
@@ -753,7 +1042,7 @@ export default function Chat() {
       toaster.create({
         title: "Generation Failed",
         description: error.message || `Could not generate ${type}`,
-        status: "error",
+        type: "error",
         duration: 5000,
       });
     } finally {
@@ -1729,8 +2018,10 @@ export default function Chat() {
         className={customTheme === "retro" ? "retro-newspaper-bg" : ""}
       >
         {/* LEFT PANEL: Sources Sidebar (NotebookLM style) */}
+        {showSourcesPanel ? (
         <Box
-          w="240px"
+          w="320px"
+          minW="320px"
           bg={customTheme === "retro" ? "rgba(255, 244, 230, 0.9)" : "white"}
           _dark={{ bg: customTheme === "retro" ? "rgba(255, 244, 230, 0.9)" : "gray.900", borderColor: customTheme === "retro" ? "#8B3A1A" : "gray.800" }}
           borderRightWidth="1px"
@@ -1753,19 +2044,26 @@ export default function Chat() {
             },
           }}
         >
-          <VStack gap={3} align="stretch" p={4} pt={3}>
-            <Box display="flex" justifyContent="center">
-              <Image
-                src="/logo.png"
-                alt="Researchella"
-                width={100}
-                height={32}
-                style={{ objectFit: "contain" }}
-              />
-            </Box>
+          <VStack gap={4} align="stretch" p={4}>
+            <Flex justify="space-between" align="center">
+              <Heading size="md" fontWeight="600">
+                Sources
+              </Heading>
+              <IconButton
+                aria-label="Hide sources panel"
+                variant="ghost"
+                size="sm"
+                color="gray.400"
+                _hover={{ color: "gray.600", bg: "gray.100" }}
+                _dark={{ color: "gray.500", _hover: { color: "gray.300", bg: "gray.800" } }}
+                onClick={() => setShowSourcesPanel(false)}
+              >
+                <PanelLeftClose size={18} />
+              </IconButton>
+            </Flex>
 
             {/* Sources Section - NotebookLM Style */}
-            <Box>
+            <Box w="full">
               {/* Add Sources Button */}
               <Button
                 leftIcon={<FiUpload />}
@@ -1922,68 +2220,6 @@ export default function Chat() {
                     <Text fontSize="xs" fontWeight="600" color="gray.600" _dark={{ color: "gray.400" }}>
                       SOURCES ({uploadedFiles.length})
                     </Text>
-                    <HStack gap={2}>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={() => {
-                          if (selectedSources.length === uploadedFiles.length) {
-                            setSelectedSources([]);
-                          } else {
-                            setSelectedSources(uploadedFiles.map((_, idx) => idx));
-                          }
-                        }}
-                        fontSize="xs"
-                        color="blue.600"
-                        _dark={{ color: "blue.400" }}
-                        fontWeight="600"
-                        _hover={{ bg: "blue.50", _dark: { bg: "blue.900" } }}
-                      >
-                        {selectedSources.length === uploadedFiles.length ? "Deselect All" : "Select All"}
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        onClick={async () => {
-                          if (selectedSources.length === 0) return;
-
-                          const fileCount = selectedSources.length;
-                          const confirmDelete = window.confirm(`Delete ${fileCount} selected file(s)? This cannot be undone.`);
-                          if (!confirmDelete) return;
-
-                          // Get selected files to delete
-                          const filesToDelete = selectedSources
-                            .map(idx => uploadedFiles[idx])
-                            .filter(f => f !== undefined);
-
-                          // Delete selected files
-                          for (const file of filesToDelete) {
-                            const index = uploadedFiles.findIndex(f => f.name === file.name);
-                            if (index !== -1) {
-                              await handleDeleteFile(index);
-                            }
-                          }
-
-                          // Clear selection after deletion
-                          setSelectedSources([]);
-
-                          toaster.create({
-                            title: "Sources Deleted",
-                            description: `Removed ${fileCount} selected file(s)`,
-                            type: "success",
-                            duration: 3000,
-                          });
-                        }}
-                        fontSize="xs"
-                        color="blue.600"
-                        _dark={{ color: "blue.400" }}
-                        fontWeight="600"
-                        _hover={{ bg: "blue.50", _dark: { bg: "blue.900" } }}
-                        isDisabled={selectedSources.length === 0}
-                      >
-                        Delete All
-                      </Button>
-                    </HStack>
                   </HStack>
                   {uploadedFiles.map((file, idx) => (
                     <Box
@@ -2012,65 +2248,163 @@ export default function Chat() {
                         }
                       }}
                     >
-                      <HStack gap={2} align="start">
-                        {/* Checkbox */}
-                        <Box
-                          w="18px"
-                          h="18px"
-                          borderRadius="sm"
-                          border="2px solid"
-                          borderColor={selectedSources.includes(idx) ? "blue.500" : "gray.300"}
-                          _dark={{ borderColor: selectedSources.includes(idx) ? "blue.400" : "gray.500" }}
-                          bg={selectedSources.includes(idx) ? "blue.500" : "transparent"}
-                          display="flex"
-                          alignItems="center"
-                          justifyContent="center"
-                          transition="all 0.15s ease"
-                          flexShrink={0}
-                          mt="2px"
-                        >
-                          {selectedSources.includes(idx) && (
-                            <FiCheck size={12} color="white" />
-                          )}
-                        </Box>
-                        <Box
-                          p={2}
-                          bg="blue.50"
-                          _dark={{ bg: "blue.900" }}
-                          borderRadius="md"
-                          flexShrink={0}
-                        >
-                          <FiFile size={16} color="var(--chakra-colors-blue-500)" />
-                        </Box>
-                        <VStack align="start" gap={0} flex={1} minW={0}>
-                          <Text fontSize="xs" fontWeight="600" noOfLines={2}>
-                            {file.name}
-                          </Text>
-                          {file.chunks && (
-                            <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
-                              {file.chunks} chunks
-                            </Text>
-                          )}
-                        </VStack>
-                        <IconButton
-                          icon={<FiX />}
-                          size="sm"
-                          variant="ghost"
-                          aria-label="Delete file"
-                          position="absolute"
-                          top={2}
-                          right={2}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteFile(idx);
-                          }}
-                          color="black"
-                          _hover={{ color: "red.600", bg: "red.50" }}
-                          _dark={{ color: "gray.300", _hover: { color: "red.400", bg: "red.900" } }}
-                          zIndex={10}
-                          fontSize="16px"
-                        />
-                      </HStack>
+                      <VStack gap={2} align="stretch">
+                        <HStack gap={2} align="start">
+                          {/* Checkbox */}
+                          <Box
+                            w="18px"
+                            h="18px"
+                            borderRadius="sm"
+                            border="2px solid"
+                            borderColor={selectedSources.includes(idx) ? "blue.500" : "gray.300"}
+                            _dark={{ borderColor: selectedSources.includes(idx) ? "blue.400" : "gray.500" }}
+                            bg={selectedSources.includes(idx) ? "blue.500" : "transparent"}
+                            display="flex"
+                            alignItems="center"
+                            justifyContent="center"
+                            transition="all 0.15s ease"
+                            flexShrink={0}
+                            mt="2px"
+                          >
+                            {selectedSources.includes(idx) && (
+                              <FiCheck size={12} color="white" />
+                            )}
+                          </Box>
+                          <Box
+                            p={2}
+                            bg={file.type === 'youtube' ? "red.50" : "blue.50"}
+                            _dark={{ bg: file.type === 'youtube' ? "red.900" : "blue.900" }}
+                            borderRadius="md"
+                            flexShrink={0}
+                          >
+                            {file.type === 'youtube' ? (
+                              <FiYoutube size={16} color="var(--chakra-colors-red-500)" />
+                            ) : (
+                              <FiFile size={16} color="var(--chakra-colors-blue-500)" />
+                            )}
+                          </Box>
+                          <VStack align="start" gap={0} flex={1} minW={0}>
+                            <HStack gap={1}>
+                              <Text fontSize="xs" fontWeight="600" noOfLines={2}>
+                                {file.name}
+                              </Text>
+                              {file.url && (
+                                <IconButton
+                                  icon={<FiExternalLink />}
+                                  size="xs"
+                                  variant="ghost"
+                                  aria-label="Open link"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(file.url, '_blank');
+                                  }}
+                                  color="gray.500"
+                                  _hover={{ color: "blue.500" }}
+                                  minW="auto"
+                                  h="auto"
+                                  p={0}
+                                />
+                              )}
+                            </HStack>
+                            {file.chunks && (
+                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                                {file.chunks} chunks
+                              </Text>
+                            )}
+                          </VStack>
+                          <IconButton
+                            icon={<FiX />}
+                            size="sm"
+                            variant="ghost"
+                            aria-label="Delete file"
+                            position="absolute"
+                            top={2}
+                            right={2}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteFile(idx);
+                            }}
+                            color="black"
+                            _hover={{ color: "red.600", bg: "red.50" }}
+                            _dark={{ color: "gray.300", _hover: { color: "red.400", bg: "red.900" } }}
+                            zIndex={10}
+                            fontSize="16px"
+                          />
+                        </HStack>
+
+                        {/* YouTube Video Embed */}
+                        {file.type === 'youtube' && file.url && (
+                          <Box
+                            mt={2}
+                            borderRadius="md"
+                            overflow="hidden"
+                            position="relative"
+                            paddingBottom="56.25%"
+                            height={0}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <iframe
+                              src={`https://www.youtube.com/embed/${file.videoId || file.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1] || ''}`}
+                              title={file.name}
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: '100%',
+                                border: 'none',
+                                borderRadius: '8px'
+                              }}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                          </Box>
+                        )}
+
+                        {/* YouTube Transcript Display */}
+                        {file.type === 'youtube' && file.transcript && file.transcript.length > 0 && (
+                          <Box
+                            mt={2}
+                            maxH="200px"
+                            overflowY="auto"
+                            bg="gray.50"
+                            _dark={{ bg: "gray.800" }}
+                            borderRadius="md"
+                            p={2}
+                            onClick={(e) => e.stopPropagation()}
+                            css={{
+                              '&::-webkit-scrollbar': { width: '4px' },
+                              '&::-webkit-scrollbar-track': { background: 'transparent' },
+                              '&::-webkit-scrollbar-thumb': { background: '#CBD5E0', borderRadius: '2px' },
+                            }}
+                          >
+                            <VStack gap={1} align="stretch">
+                              {file.transcript.slice(0, 50).map((seg, i) => (
+                                <HStack key={i} gap={2} align="start">
+                                  <Text
+                                    fontSize="xs"
+                                    color="blue.500"
+                                    _dark={{ color: "blue.300" }}
+                                    fontFamily="mono"
+                                    minW="40px"
+                                    flexShrink={0}
+                                  >
+                                    {seg.timestamp}
+                                  </Text>
+                                  <Text fontSize="xs" color="gray.700" _dark={{ color: "gray.300" }}>
+                                    {seg.text}
+                                  </Text>
+                                </HStack>
+                              ))}
+                              {file.transcript.length > 50 && (
+                                <Text fontSize="xs" color="gray.500" textAlign="center" mt={1}>
+                                  ... and {file.transcript.length - 50} more segments
+                                </Text>
+                              )}
+                            </VStack>
+                          </Box>
+                        )}
+                      </VStack>
                     </Box>
                   ))}
                 </VStack>
@@ -2078,6 +2412,27 @@ export default function Chat() {
             </Box>
           </VStack>
         </Box>
+        ) : (
+          /* Collapsed Sources Panel Toggle */
+          <Box
+            display={{ base: "none", lg: "flex" }}
+            alignItems="flex-start"
+            pt={4}
+            pl={2}
+          >
+            <IconButton
+              aria-label="Show sources panel"
+              variant="ghost"
+              size="sm"
+              color="gray.400"
+              _hover={{ color: "gray.600", bg: "gray.100" }}
+              _dark={{ color: "gray.500", _hover: { color: "gray.300", bg: "gray.800" } }}
+              onClick={() => setShowSourcesPanel(true)}
+            >
+              <PanelLeftOpen size={18} />
+            </IconButton>
+          </Box>
+        )}
 
         {/* Mobile Sidebar Overlay */}
         {isSidebarOpen && (
@@ -2190,7 +2545,15 @@ export default function Chat() {
         )}
 
         {/* CENTER PANEL: Main Chat Area */}
-        <Flex flex={1} direction="column" overflow="hidden" maxW={{ lg: "calc(100vw - 560px)" }}>
+        <Flex
+          flex={1}
+          direction="column"
+          overflow="hidden"
+          maxW={{
+            lg: `calc(100vw - ${(showSourcesPanel ? 320 : 40) + (showStudioPanel ? 320 : 40)}px)`
+          }}
+          minW={0}
+        >
           {/* Header */}
           <Flex
             px={6}
@@ -2204,18 +2567,23 @@ export default function Chat() {
             gap={4}
             shadow="sm"
           >
-            <IconButton
-              icon={<FiArrowLeft />}
-              variant="ghost"
+            <Box
+              cursor="pointer"
               onClick={() => router.push("/sessions")}
-              aria-label="Back to sessions"
-            />
+              _hover={{ opacity: 0.8 }}
+              transition="opacity 0.2s"
+            >
+              <Image
+                src="/logo.png"
+                alt="Researchella"
+                width={100}
+                height={32}
+                style={{ objectFit: "contain" }}
+              />
+            </Box>
             <VStack gap={0} align="start">
               <Text fontWeight="bold" fontSize="md">
                 {sessionName || "Chat Session"}
-              </Text>
-              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
-                AI Research Assistant
               </Text>
             </VStack>
             {uploadedFiles.length > 0 && (
@@ -2320,131 +2688,328 @@ export default function Chat() {
               {messages.length === 0 ? (
                 <VStack gap={8} align="center" py={10}>
                   {uploadedFiles.length === 0 ? (
-                    // Document upload interface
+                    // Document upload interface - NotebookLM style
                     <>
-                      <VStack gap={4} align="center">
-                        <Heading size="2xl" textAlign="center">
-                          Welcome to PaperSage
-                        </Heading>
-                        <Text fontSize="lg" color="gray.600" _dark={{ color: "gray.400" }} textAlign="center">
-                          Upload documents or add URLs to start your research assistant
-                        </Text>
-                      </VStack>
+                      <Box
+                        w="full"
+                        maxW="700px"
+                        bg="white"
+                        _dark={{ bg: "gray.900" }}
+                        borderRadius="xl"
+                        border="1px solid"
+                        borderColor="gray.200"
+                        _dark_borderColor="gray.700"
+                        p={8}
+                        shadow="lg"
+                      >
+                        {/* Header */}
+                        <VStack gap={1} align="center" mb={6}>
+                          <Heading size="lg" fontWeight="600" textAlign="center">
+                            Add Sources
+                          </Heading>
+                          <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
+                            Upload files or add from URL
+                          </Text>
+                        </VStack>
 
-                      <VStack gap={6} w="full" maxW="600px">
-                        {/* File Upload Card */}
-                        <Card.Root w="full" variant="outline">
-                          <Card.Body>
-                            <VStack gap={4}>
+                        {/* Upload Area */}
+                        <Box
+                          as="label"
+                          htmlFor="initial-file-upload"
+                          cursor="pointer"
+                          display="block"
+                          w="full"
+                          p={10}
+                          mb={6}
+                          border="2px dashed"
+                          borderColor={isUploading ? "blue.400" : "gray.300"}
+                          _dark={{ borderColor: isUploading ? "blue.400" : "gray.600" }}
+                          borderRadius="lg"
+                          textAlign="center"
+                          transition="all 0.2s"
+                          bg="gray.50"
+                          _dark_bg="gray.800"
+                          _hover={{
+                            borderColor: "blue.400",
+                            bg: "gray.100",
+                            _dark: { bg: "gray.750" }
+                          }}
+                          opacity={isUploading ? 0.7 : 1}
+                        >
+                          <VStack gap={3}>
+                            <Box
+                              w="48px"
+                              h="48px"
+                              borderRadius="full"
+                              bg="blue.100"
+                              _dark={{ bg: "blue.900" }}
+                              display="flex"
+                              alignItems="center"
+                              justifyContent="center"
+                            >
+                              {isUploading ? (
+                                <Spinner size="md" color="blue.500" />
+                              ) : (
+                                <Box color="blue.500" fontSize="xl">
+                                  <FiUpload />
+                                </Box>
+                              )}
+                            </Box>
+                            <Text fontWeight="600" fontSize="md">
+                              {isUploading ? "Uploading..." : "Upload sources"}
+                            </Text>
+                            <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }}>
+                              {isUploading ? (
+                                "Processing document..."
+                              ) : (
+                                <>Drag & drop or <Text as="span" color="blue.500" textDecoration="underline">choose file</Text> to upload</>
+                              )}
+                            </Text>
+                            <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} mt={2}>
+                              Supported: PDF, TXT, MD, CSV, JSON, JPG, PNG
+                            </Text>
+                          </VStack>
+                        </Box>
+                        <input
+                          id="initial-file-upload"
+                          type="file"
+                          accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
+                          onChange={handleFileUpload}
+                          multiple
+                          style={{ display: "none" }}
+                          disabled={isUploading}
+                        />
+
+                        {/* Source Type Cards */}
+                        <HStack gap={4} w="full">
+                          {/* Google Workspace Card */}
+                          <Box
+                            flex={1}
+                            p={4}
+                            bg="gray.50"
+                            _dark={{ bg: "gray.800" }}
+                            borderRadius="lg"
+                            border="1px solid"
+                            borderColor="gray.200"
+                            _dark_borderColor="gray.700"
+                            cursor={isLoadingGoogleDrive ? "wait" : "pointer"}
+                            transition="all 0.2s"
+                            _hover={{ bg: "gray.100", _dark: { bg: "gray.700" } }}
+                            onClick={handleGoogleDrivePicker}
+                            opacity={isLoadingGoogleDrive ? 0.7 : 1}
+                          >
+                            <HStack gap={2} mb={3}>
+                              {isLoadingGoogleDrive ? <Spinner size="sm" color="#4285F4" /> : <SiGoogledrive color="#4285F4" />}
+                              <Text fontWeight="500" fontSize="sm">Google Workspace</Text>
+                            </HStack>
+                            <HStack gap={2} flexWrap="wrap">
                               <Box
-                                as="label"
-                                htmlFor="initial-file-upload"
-                                cursor="pointer"
-                                w="full"
-                                p={8}
-                                border="2px dashed"
-                                borderColor={isUploading ? "blue.400" : "gray.300"}
-                                _dark={{ borderColor: isUploading ? "blue.400" : "gray.600" }}
-                                borderRadius="lg"
-                                textAlign="center"
-                                transition="all 0.2s"
-                                _hover={{
-                                  borderColor: "blue.400",
-                                  bg: "blue.50",
-                                  _dark: { bg: "blue.900" }
-                                }}
-                                opacity={isUploading ? 0.7 : 1}
+                                as="span"
+                                px={3}
+                                py={1}
+                                bg="blue.100"
+                                _dark={{ bg: "blue.900" }}
+                                color="blue.600"
+                                _dark_color="blue.300"
+                                borderRadius="full"
+                                fontSize="xs"
+                                fontWeight="500"
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
                               >
-                                <VStack gap={3}>
-                                  <Box fontSize="3xl" color="blue.500">
-                                    {isUploading ? <Spinner size="lg" color="blue.500" /> : <FiUpload />}
-                                  </Box>
-                                  <Text fontWeight="semibold">
-                                    {isUploading ? "Uploading..." : "Drop files here or click to browse"}
-                                  </Text>
-                                  <Text fontSize="sm" color="gray.500">
-                                    {isUploading
-                                      ? "Processing document with GPT-4 Vision..."
-                                      : "Supports PDF, TXT, MD, CSV, JSON, and image files (JPG, PNG, etc.)"}
-                                  </Text>
-                                </VStack>
+                                <SiGoogledrive size={12} />
+                                Google Drive
                               </Box>
-                              <input
-                                id="initial-file-upload"
-                                type="file"
-                                accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
-                                onChange={handleFileUpload}
-                                multiple
-                                style={{ display: "none" }}
+                            </HStack>
+                          </Box>
+
+                          {/* Link Card */}
+                          <Box
+                            flex={1}
+                            p={4}
+                            bg="gray.50"
+                            _dark={{ bg: "gray.800" }}
+                            borderRadius="lg"
+                            border="1px solid"
+                            borderColor="gray.200"
+                            _dark_borderColor="gray.700"
+                          >
+                            <HStack gap={2} mb={3}>
+                              <FiLink color="gray.500" />
+                              <Text fontWeight="500" fontSize="sm">Link</Text>
+                            </HStack>
+                            <HStack gap={2} flexWrap="wrap">
+                              <Box
+                                as="span"
+                                px={3}
+                                py={1}
+                                bg="gray.200"
+                                _dark={{ bg: "gray.700" }}
+                                borderRadius="full"
+                                fontSize="xs"
+                                fontWeight="500"
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
+                                cursor="pointer"
+                                _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
+                                onClick={() => document.getElementById('url-input-field')?.focus()}
+                              >
+                                <FiGlobe size={12} />
+                                Website
+                              </Box>
+                              <Box
+                                as="span"
+                                px={3}
+                                py={1}
+                                bg="red.100"
+                                _dark={{ bg: "red.900" }}
+                                color="red.600"
+                                _dark_color="red.300"
+                                borderRadius="full"
+                                fontSize="xs"
+                                fontWeight="500"
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
+                                cursor="pointer"
+                                _hover={{ bg: "red.200", _dark: { bg: "red.800" } }}
+                                onClick={() => document.getElementById('url-input-field')?.focus()}
+                              >
+                                <FiYoutube size={12} />
+                                YouTube
+                              </Box>
+                            </HStack>
+                          </Box>
+
+                          {/* Paste Text Card */}
+                          <Box
+                            flex={1}
+                            p={4}
+                            bg={showPasteText ? "blue.50" : "gray.50"}
+                            _dark={{ bg: showPasteText ? "blue.900" : "gray.800" }}
+                            borderRadius="lg"
+                            border="1px solid"
+                            borderColor={showPasteText ? "blue.400" : "gray.200"}
+                            _dark_borderColor={showPasteText ? "blue.400" : "gray.700"}
+                            cursor="pointer"
+                            transition="all 0.2s"
+                            onClick={() => setShowPasteText(!showPasteText)}
+                          >
+                            <HStack gap={2} mb={3}>
+                              <FiFileText color={showPasteText ? "blue.500" : "gray.500"} />
+                              <Text fontWeight="500" fontSize="sm">Paste text</Text>
+                            </HStack>
+                            <HStack gap={2}>
+                              <Box
+                                as="span"
+                                px={3}
+                                py={1}
+                                bg={showPasteText ? "blue.100" : "gray.200"}
+                                _dark={{ bg: showPasteText ? "blue.800" : "gray.700" }}
+                                borderRadius="full"
+                                fontSize="xs"
+                                fontWeight="500"
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
+                              >
+                                <FiFile size={12} />
+                                Copied text
+                              </Box>
+                            </HStack>
+                          </Box>
+                        </HStack>
+
+                        {/* URL Input */}
+                        <Box mt={6} pt={6} borderTop="1px solid" borderColor="gray.200" _dark={{ borderColor: "gray.700" }}>
+                          <HStack gap={2}>
+                            <Box
+                              flex={1}
+                              position="relative"
+                            >
+                              <Input
+                                id="url-input-field"
+                                placeholder="Paste a URL (YouTube, arXiv, PubMed, or any website)..."
+                                value={urlInput}
+                                onChange={(e) => setUrlInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !isUploading) {
+                                    handleUrlSubmit();
+                                  }
+                                }}
+                                size="md"
+                                bg="white"
+                                _dark={{ bg: "gray.800" }}
+                                border="1px solid"
+                                borderColor="gray.300"
+                                _dark_borderColor="gray.600"
+                                borderRadius="lg"
+                                _focus={{ borderColor: "blue.400", boxShadow: "none" }}
                                 disabled={isUploading}
                               />
-                            </VStack>
-                          </Card.Body>
-                        </Card.Root>
+                            </Box>
+                            <Button
+                              bg="black"
+                              color="white"
+                              _dark={{ bg: "white", color: "black" }}
+                              _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
+                              onClick={handleUrlSubmit}
+                              loading={isUploading}
+                              disabled={!urlInput.trim() || isUploading}
+                              borderRadius="lg"
+                              px={6}
+                            >
+                              Add
+                            </Button>
+                          </HStack>
+                        </Box>
 
-                        {/* URL Input Card */}
-                        <Card.Root w="full" variant="outline">
-                          <Card.Body>
-                            <VStack gap={4} align="stretch">
-                              <HStack gap={3}>
-                                <Box fontSize="xl" color="blue.500">
-                                  <FiLink />
-                                </Box>
-                                <Text fontWeight="semibold">Add from URL</Text>
-                              </HStack>
-                              <HStack gap={2}>
-                                <input
-                                  type="text"
-                                  placeholder="Paste arXiv, PubMed, or paper URL..."
-                                  value={urlInput}
-                                  onChange={(e) => setUrlInput(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter" && !isUploading) {
-                                      handleUrlSubmit();
-                                    }
-                                  }}
-                                  style={{
-                                    flex: 1,
-                                    padding: "8px 12px",
-                                    borderRadius: "6px",
-                                    border: "1px solid #CBD5E0",
-                                    fontSize: "14px",
-                                  }}
-                                  disabled={isUploading}
-                                />
+                        {/* Paste Text Input */}
+                        {showPasteText && (
+                          <Box mt={4} pt={4} borderTop="1px solid" borderColor="gray.200" _dark={{ borderColor: "gray.700" }}>
+                            <VStack gap={3} align="stretch">
+                              <Textarea
+                                id="paste-text-field"
+                                placeholder="Paste your text here (research notes, articles, documentation, etc.)..."
+                                value={pasteTextInput}
+                                onChange={(e) => setPasteTextInput(e.target.value)}
+                                size="md"
+                                bg="white"
+                                _dark={{ bg: "gray.800" }}
+                                border="1px solid"
+                                borderColor="gray.300"
+                                _dark_borderColor="gray.600"
+                                borderRadius="lg"
+                                _focus={{ borderColor: "blue.400", boxShadow: "none" }}
+                                disabled={isUploading}
+                                minH="120px"
+                                resize="vertical"
+                              />
+                              <HStack justify="space-between">
+                                <Text fontSize="xs" color="gray.500">
+                                  {pasteTextInput.length > 0 ? `${pasteTextInput.length} characters` : "Paste or type your text"}
+                                </Text>
                                 <Button
-                                  colorScheme="blue"
-                                  onClick={handleUrlSubmit}
-                                  isLoading={isUploading}
-                                  disabled={!urlInput.trim() || isUploading}
+                                  bg="black"
+                                  color="white"
+                                  _dark={{ bg: "white", color: "black" }}
+                                  _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
+                                  onClick={handlePasteTextSubmit}
+                                  loading={isUploading}
+                                  disabled={!pasteTextInput.trim() || isUploading}
+                                  borderRadius="lg"
+                                  px={6}
+                                  size="sm"
                                 >
-                                  Add
+                                  Add Text
                                 </Button>
                               </HStack>
-                              <Text fontSize="xs" color="gray.500">
-                                Works with arXiv, PubMed, Google Scholar, and most academic sites
-                              </Text>
                             </VStack>
-                          </Card.Body>
-                        </Card.Root>
-
-                        {/* Quick Start */}
-                        <Box textAlign="center" w="full">
-                          <Text fontSize="sm" color="gray.500" mb={2}>
-                            Or start without documents
-                          </Text>
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              if (messages.length === 0) {
-                                setMessages([{ role: "system", content: "Chat started without documents" }]);
-                              }
-                            }}
-                          >
-                            Skip and start chatting →
-                          </Button>
-                        </Box>
-                      </VStack>
+                          </Box>
+                        )}
+                      </Box>
                     </>
                   ) : (
                     // Original interface when documents are uploaded
@@ -2974,14 +3539,19 @@ export default function Chat() {
         </Flex>
 
         {/* RIGHT PANEL: Studio (NotebookLM style) */}
+        {showStudioPanel ? (
         <Box
-          w="280px"
+          w="320px"
+          minW="320px"
+          pr={8}
           bg="white"
           _dark={{ bg: "gray.900", borderColor: "gray.800" }}
           borderLeftWidth="1px"
           borderColor="gray.100"
           display={{ base: "none", lg: "block" }}
           overflowY="auto"
+          position="relative"
+          right={0}
           css={{
             '&::-webkit-scrollbar': {
               width: '6px',
@@ -2999,9 +3569,22 @@ export default function Chat() {
           }}
         >
           <VStack gap={4} align="stretch" p={4}>
-            <Heading size="md" fontWeight="600">
-              Studio
-            </Heading>
+            <Flex justify="space-between" align="center">
+              <Heading size="md" fontWeight="600">
+                Studio
+              </Heading>
+              <IconButton
+                aria-label="Hide studio panel"
+                variant="ghost"
+                size="sm"
+                color="gray.400"
+                _hover={{ color: "gray.600", bg: "gray.100" }}
+                _dark={{ color: "gray.500", _hover: { color: "gray.300", bg: "gray.800" } }}
+                onClick={() => setShowStudioPanel(false)}
+              >
+                <PanelRightClose size={18} />
+              </IconButton>
+            </Flex>
 
             <Text fontSize="sm" color="gray.600" _dark={{ color: "gray.400" }}>
               Generate study materials from your sources
@@ -3264,6 +3847,27 @@ export default function Chat() {
             )}
           </VStack>
         </Box>
+        ) : (
+          /* Collapsed Studio Panel Toggle */
+          <Box
+            display={{ base: "none", lg: "flex" }}
+            alignItems="flex-start"
+            pt={4}
+            pr={2}
+          >
+            <IconButton
+              aria-label="Show studio panel"
+              variant="ghost"
+              size="sm"
+              color="gray.400"
+              _hover={{ color: "gray.600", bg: "gray.100" }}
+              _dark={{ color: "gray.500", _hover: { color: "gray.300", bg: "gray.800" } }}
+              onClick={() => setShowStudioPanel(true)}
+            >
+              <PanelRightOpen size={18} />
+            </IconButton>
+          </Box>
+        )}
       </Flex>
 
       {/* Audio Overview Modal */}
@@ -3956,7 +4560,7 @@ export default function Chat() {
         />
       )}
 
-      {/* Upload Interface Overlay Modal */}
+      {/* Upload Interface Overlay Modal - Minimalist B&W */}
       {showUploadInterface && (
         <>
           {/* Backdrop */}
@@ -3966,7 +4570,9 @@ export default function Chat() {
             left={0}
             right={0}
             bottom={0}
-            bg="blackAlpha.700"
+            bg="blackAlpha.600"
+            _dark={{ bg: "blackAlpha.800" }}
+            backdropFilter="blur(4px)"
             zIndex={2000}
             onClick={() => setShowUploadInterface(false)}
           />
@@ -3978,15 +4584,18 @@ export default function Chat() {
             left="50%"
             transform="translate(-50%, -50%)"
             w="90%"
-            maxW="600px"
+            maxW="480px"
             maxH="90vh"
             overflowY="auto"
             bg="white"
-            _dark={{ bg: "gray.800" }}
-            borderRadius="xl"
-            boxShadow="2xl"
+            _dark={{ bg: "gray.900" }}
+            borderRadius="2xl"
+            border="1px solid"
+            borderColor="gray.200"
+            _dark={{ borderColor: "gray.700" }}
+            boxShadow="0 25px 50px -12px rgba(0, 0, 0, 0.25)"
             zIndex={2001}
-            p={6}
+            p={8}
           >
             {/* Close Button */}
             <IconButton
@@ -3997,11 +4606,12 @@ export default function Chat() {
               variant="ghost"
               size="sm"
               borderRadius="full"
-              color="gray.900"
-              _dark={{ color: "gray.100" }}
+              color="gray.500"
+              _dark={{ color: "gray.400" }}
               _hover={{
                 bg: "gray.100",
-                _dark: { bg: "gray.700" }
+                color: "gray.900",
+                _dark: { bg: "gray.800", color: "gray.100" }
               }}
               onClick={() => setShowUploadInterface(false)}
             >
@@ -4009,115 +4619,178 @@ export default function Chat() {
             </IconButton>
 
             {/* Upload Interface Content */}
-            <VStack gap={6} w="full">
-              <Heading size="lg" textAlign="center" pr={8}>
-                Add Sources
-              </Heading>
+            <VStack gap={8} w="full">
+              <VStack gap={1}>
+                <Heading size="lg" textAlign="center" fontWeight="600" color="gray.900" _dark={{ color: "white" }}>
+                  Add Sources
+                </Heading>
+                <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
+                  Upload files or add from URL
+                </Text>
+              </VStack>
 
-              {/* File Upload Card */}
-              <Card.Root w="full" variant="outline">
-                <Card.Body>
-                  <VStack gap={4}>
+              {/* File Upload Area */}
+              <Box w="full">
+                <Box
+                  cursor={isUploading ? "wait" : "pointer"}
+                  w="full"
+                  p={10}
+                  border="2px dashed"
+                  borderColor={isDragging ? "gray.900" : "gray.300"}
+                  _dark={{
+                    borderColor: isDragging ? "white" : "gray.600"
+                  }}
+                  borderRadius="xl"
+                  textAlign="center"
+                  transition="all 0.2s ease"
+                  bg={isDragging ? "gray.50" : "transparent"}
+                  _dark={{ bg: isDragging ? "gray.800" : "transparent" }}
+                  _hover={{
+                    borderColor: "gray.900",
+                    bg: "gray.50",
+                    _dark: { borderColor: "white", bg: "gray.800" }
+                  }}
+                  opacity={isUploading ? 0.6 : 1}
+                  onClick={() => {
+                    if (!isUploading) {
+                      document.getElementById('modal-file-upload')?.click();
+                    }
+                  }}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                >
+                  <VStack gap={3}>
                     <Box
-                      cursor="pointer"
-                      w="full"
-                      p={8}
-                      border="2px dashed"
-                      borderColor={isDragging ? "blue.500" : (isUploading ? "blue.400" : "gray.300")}
-                      _dark={{ borderColor: isDragging ? "blue.500" : (isUploading ? "blue.400" : "gray.600") }}
-                      borderRadius="lg"
-                      textAlign="center"
-                      transition="all 0.2s"
-                      bg={isDragging ? "blue.50" : "transparent"}
-                      _dark={{ bg: isDragging ? "blue.900" : "transparent" }}
-                      _hover={{
-                        borderColor: "blue.400",
-                        bg: "blue.50",
-                        _dark: { bg: "blue.900" }
-                      }}
-                      opacity={isUploading ? 0.7 : 1}
-                      onClick={() => {
-                        if (!isUploading) {
-                          document.getElementById('modal-file-upload')?.click();
-                        }
-                      }}
-                      onDragEnter={handleDragEnter}
-                      onDragLeave={handleDragLeave}
-                      onDragOver={handleDragOver}
-                      onDrop={handleDrop}
+                      fontSize="2xl"
+                      color="gray.900"
+                      _dark={{ color: "white" }}
                     >
-                      <VStack gap={3}>
-                        <Box fontSize="3xl" color="blue.500">
-                          {isUploading ? <Spinner size="lg" color="blue.500" /> : <FiUpload />}
-                        </Box>
-                        <Text fontWeight="semibold">
-                          {isUploading ? "Uploading..." : "Drop files here or click to browse"}
-                        </Text>
-                        <Text fontSize="sm" color="gray.500">
-                          {isUploading
-                            ? "Processing document with GPT-4 Vision..."
-                            : "Supports PDF, TXT, MD, CSV, JSON, and image files (JPG, PNG, etc.)"}
-                        </Text>
-                      </VStack>
+                      {isUploading ? <Spinner size="lg" color="gray.900" /> : <FiUpload />}
                     </Box>
-                    <input
-                      id="modal-file-upload"
-                      type="file"
-                      accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
-                      onChange={handleFileUpload}
-                      multiple
-                      style={{ display: "none" }}
-                      disabled={isUploading}
-                    />
+                    <VStack gap={1}>
+                      <Text fontWeight="500" color="gray.900" _dark={{ color: "white" }}>
+                        {isUploading ? "Processing..." : "Drop files or click to browse"}
+                      </Text>
+                      <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                        {isUploading
+                          ? "Analyzing with GPT-4 Vision"
+                          : "PDF, TXT, MD, CSV, JSON, Images"}
+                      </Text>
+                    </VStack>
                   </VStack>
-                </Card.Body>
-              </Card.Root>
+                </Box>
+                <input
+                  id="modal-file-upload"
+                  type="file"
+                  accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
+                  onChange={handleFileUpload}
+                  multiple
+                  style={{ display: "none" }}
+                  disabled={isUploading}
+                />
+              </Box>
 
-              {/* URL Input Card */}
-              <Card.Root w="full" variant="outline">
-                <Card.Body>
-                  <VStack gap={4} align="stretch">
-                    <HStack gap={3}>
-                      <Box fontSize="xl" color="blue.500">
-                        <FiLink />
-                      </Box>
-                      <Text fontWeight="semibold">Add from URL</Text>
-                    </HStack>
-                    <HStack gap={2}>
-                      <input
-                        type="text"
-                        placeholder="Paste arXiv, PubMed, or paper URL..."
-                        value={urlInput}
-                        onChange={(e) => setUrlInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !isUploading) {
-                            handleUrlSubmit();
-                          }
-                        }}
-                        style={{
-                          flex: 1,
-                          padding: "8px 12px",
-                          borderRadius: "6px",
-                          border: "1px solid #CBD5E0",
-                          fontSize: "14px",
-                        }}
-                        disabled={isUploading}
-                      />
-                      <Button
-                        colorScheme="blue"
-                        onClick={handleUrlSubmit}
-                        isLoading={isUploading}
-                        disabled={!urlInput.trim() || isUploading}
-                      >
-                        Add
-                      </Button>
-                    </HStack>
-                    <Text fontSize="xs" color="gray.500">
-                      Works with arXiv, PubMed, Google Scholar, and most academic sites
+              {/* Google Workspace Option */}
+              <Box
+                w="full"
+                p={4}
+                border="1px solid"
+                borderColor="gray.200"
+                _dark={{ borderColor: "gray.700" }}
+                borderRadius="xl"
+                cursor={isLoadingGoogleDrive ? "wait" : "pointer"}
+                transition="all 0.2s ease"
+                opacity={isLoadingGoogleDrive ? 0.7 : 1}
+                _hover={{
+                  borderColor: "blue.400",
+                  bg: "blue.50",
+                  _dark: { borderColor: "blue.400", bg: "blue.900" }
+                }}
+                onClick={handleGoogleDrivePicker}
+              >
+                <HStack gap={3}>
+                  <Box color="#4285F4">
+                    {isLoadingGoogleDrive ? <Spinner size="sm" color="#4285F4" /> : <SiGoogledrive size={24} />}
+                  </Box>
+                  <VStack align="start" gap={0}>
+                    <Text fontWeight="500" color="gray.900" _dark={{ color: "white" }}>
+                      Google Workspace
+                    </Text>
+                    <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                      {isLoadingGoogleDrive ? "Connecting..." : "Import from Google Drive"}
                     </Text>
                   </VStack>
-                </Card.Body>
-              </Card.Root>
+                </HStack>
+              </Box>
+
+              {/* Divider */}
+              <HStack w="full" gap={4}>
+                <Box flex={1} h="1px" bg="gray.200" _dark={{ bg: "gray.700" }} />
+                <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} fontWeight="500">
+                  OR
+                </Text>
+                <Box flex={1} h="1px" bg="gray.200" _dark={{ bg: "gray.700" }} />
+              </HStack>
+
+              {/* URL Input */}
+              <VStack gap={3} w="full">
+                <HStack gap={3} w="full">
+                  <Input
+                    placeholder="Paste URL (arXiv, PubMed, etc.)"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !isUploading) {
+                        handleUrlSubmit();
+                      }
+                    }}
+                    size="lg"
+                    borderRadius="xl"
+                    border="1px solid"
+                    borderColor="gray.300"
+                    _dark={{
+                      borderColor: "gray.600",
+                      bg: "gray.800",
+                      _placeholder: { color: "gray.500" }
+                    }}
+                    bg="gray.50"
+                    _hover={{
+                      borderColor: "gray.400",
+                      _dark: { borderColor: "gray.500" }
+                    }}
+                    _focus={{
+                      borderColor: "gray.900",
+                      boxShadow: "none",
+                      _dark: { borderColor: "white" }
+                    }}
+                    disabled={isUploading}
+                    fontSize="sm"
+                  />
+                  <Button
+                    bg="gray.900"
+                    color="white"
+                    _dark={{ bg: "white", color: "gray.900" }}
+                    _hover={{
+                      bg: "gray.800",
+                      _dark: { bg: "gray.100" }
+                    }}
+                    size="lg"
+                    px={6}
+                    borderRadius="xl"
+                    fontWeight="500"
+                    onClick={handleUrlSubmit}
+                    isLoading={isUploading}
+                    disabled={!urlInput.trim() || isUploading}
+                  >
+                    Add
+                  </Button>
+                </HStack>
+                <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }}>
+                  Supports arXiv, PubMed, Google Scholar & academic sites
+                </Text>
+              </VStack>
             </VStack>
           </Box>
         </>

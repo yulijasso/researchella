@@ -68,7 +68,7 @@ export default function Sessions() {
         toaster.create({
           title: "Error Loading Sessions",
           description: "Failed to load your chat sessions. Please refresh the page.",
-          status: "error",
+          type: "error",
           duration: 5000,
         });
       }
@@ -82,7 +82,7 @@ export default function Sessions() {
       toaster.create({
         title: "Session name required",
         description: "Please enter a name for your chat session",
-        status: "error",
+        type: "error",
         duration: 3000,
       });
       return;
@@ -110,7 +110,7 @@ export default function Sessions() {
       toaster.create({
         title: "Session Created",
         description: `"${session.name}" is ready`,
-        status: "success",
+        type: "success",
         duration: 2000,
       });
 
@@ -120,7 +120,7 @@ export default function Sessions() {
       toaster.create({
         title: "Error",
         description: "Failed to create session. Please try again.",
-        status: "error",
+        type: "error",
         duration: 3000,
       });
     }
@@ -162,7 +162,7 @@ export default function Sessions() {
       toaster.create({
         title: "Renamed",
         description: "Notebook renamed successfully",
-        status: "success",
+        type: "success",
         duration: 2000,
       });
 
@@ -173,7 +173,7 @@ export default function Sessions() {
       toaster.create({
         title: "Error",
         description: "Failed to rename. Please try again.",
-        status: "error",
+        type: "error",
         duration: 3000,
       });
     }
@@ -210,7 +210,7 @@ export default function Sessions() {
       toaster.create({
         title: "Session Deleted",
         description: `"${sessionToDelete.name}" has been removed`,
-        status: "success",
+        type: "success",
         duration: 3000,
       });
 
@@ -220,7 +220,7 @@ export default function Sessions() {
       toaster.create({
         title: "Error",
         description: "Failed to delete session. Please try again.",
-        status: "error",
+        type: "error",
         duration: 3000,
       });
       setSessionToDelete(null);

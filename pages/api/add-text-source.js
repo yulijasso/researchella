@@ -15,37 +15,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { url, title, snippet, sessionId } = req.body;
+    const { text, title, sessionId } = req.body;
 
-    if (!url || !sessionId) {
-      return res.status(400).json({ error: 'URL and session ID are required' });
+    if (!text || !sessionId) {
+      return res.status(400).json({ error: 'Text and session ID are required' });
     }
 
-    console.log(`📄 Adding web source: ${title || url}`);
-
-    // Fetch the web page content
-    let content = '';
-    try {
-      const response = await fetch(url);
-      const html = await response.text();
-
-      // Simple HTML to text conversion (strip tags)
-      content = html
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      // Fallback to snippet if content is too short
-      if (content.length < 100 && snippet) {
-        content = snippet;
-      }
-    } catch (fetchError) {
-      console.error('Error fetching URL:', fetchError);
-      // Use snippet as fallback
-      content = snippet || 'Unable to fetch content from this URL';
-    }
+    console.log(`📝 Adding pasted text source: ${title || 'Pasted text'}`);
 
     // Split content into chunks
     const textSplitter = new RecursiveCharacterTextSplitter({
@@ -53,7 +29,7 @@ export default async function handler(req, res) {
       chunkOverlap: 200,
     });
 
-    const chunks = await textSplitter.splitText(content);
+    const chunks = await textSplitter.splitText(text);
 
     console.log(`✂️ Split into ${chunks.length} chunks`);
 
@@ -62,23 +38,22 @@ export default async function handler(req, res) {
       chunks.map(chunk => ({
         content: chunk,
         metadata: {
-          source: title || url,
-          type: 'url',
-          url: url,
+          source: title || 'Pasted text',
+          type: 'text',
         }
       })),
       sessionId,
       userId
     );
 
-    // Save to database (store url in name for reference)
+    // Save to database
     const { data: fileData, error: dbError } = await supabase
       .from('uploaded_files')
       .insert({
         user_id: userId,
         session_id: sessionId,
-        name: `${title || 'Web Page'}||${url}`, // Store URL with title
-        type: 'url',
+        name: title || 'Pasted text',
+        type: 'text',
         chunks: chunks.length,
       })
       .select()
@@ -89,18 +64,19 @@ export default async function handler(req, res) {
       throw dbError;
     }
 
-    console.log(`✅ Successfully added web source: ${title || url}`);
+    console.log(`✅ Successfully added pasted text: ${title || 'Pasted text'}`);
 
     return res.status(200).json({
       success: true,
       chunks: chunks.length,
       fileId: fileData.id,
+      title: title || 'Pasted text',
     });
 
   } catch (error) {
-    console.error('Error adding web source:', error);
+    console.error('Error adding text source:', error);
     return res.status(500).json({
-      error: 'Failed to add web source',
+      error: 'Failed to add text source',
       details: error.message
     });
   }

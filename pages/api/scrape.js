@@ -1,10 +1,17 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { getAuth } from '@clerk/nextjs/server';
 import { addDocumentsToStore } from "../../lib/vectorStore";
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { userId } = getAuth(req);
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   try {
@@ -44,9 +51,9 @@ export default async function handler(req, res) {
     // Process the extracted content into chunks
     const chunks = processTextIntoChunks(extractedData.content, extractedData.title || url, url);
 
-    console.log(`Adding ${chunks.length} chunks to vector store for session ${sessionId}`);
-    // Add to vector store with session ID for isolation
-    const result = await addDocumentsToStore(chunks, sessionId);
+    console.log(`Adding ${chunks.length} chunks to vector store for user ${userId}, session ${sessionId}`);
+    // Add to vector store with session ID AND user ID for isolation
+    const result = await addDocumentsToStore(chunks, sessionId, userId);
 
     res.status(200).json({
       success: true,
@@ -329,7 +336,7 @@ async function scrapeGeneric(url) {
 
     // Try to get article body
     const articleBody = $('article, .article-content, .paper-content, main').text().trim();
-    if (articleBody && articleBody.length > abstract.length) {
+    if (articleBody && articleBody.length > (abstract?.length || 0)) {
       content += `Content:\n${articleBody}\n`;
     } else {
       // Fallback to all paragraph text
