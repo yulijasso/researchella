@@ -109,11 +109,11 @@ export default async function handler(req, res) {
           contextInfo += `[CHUNK-${index + 1}]\n`;
           contextInfo += `File: ${source}${page} | Type: ${type}\n`;
 
-          // Add extra metadata for YouTube sources
+          // Add extra metadata for YouTube sources (but NOT the URL - it causes AI to repeat it)
           if (type === 'youtube') {
             if (doc.metadata.author) contextInfo += `Channel: ${doc.metadata.author}\n`;
             if (doc.metadata.description) contextInfo += `Description: ${doc.metadata.description}\n`;
-            if (doc.metadata.url) contextInfo += `URL: ${doc.metadata.url}\n`;
+            // URL intentionally omitted to prevent AI from including it in responses
           }
 
           contextInfo += `Content (numbered sentences):\n`;
