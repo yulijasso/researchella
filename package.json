@@ -50,13 +50,14 @@
     "youtubei.js": "^16.0.1"
   },
   "optionalDependencies": {
-    "canvas": "^3.2.0",
     "@sparticuz/chromium": "^141.0.0",
+    "canvas": "^3.2.0",
     "pdf-poppler": "^0.2.3",
     "pdf2pic": "^3.2.0",
     "puppeteer-core": "^24.30.0"
   },
   "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.15.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
     "jest": "^30.2.0"
