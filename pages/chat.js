@@ -3746,50 +3746,6 @@ export default function Chat() {
                   </VStack>
                 )}
 
-                {/* Context-aware suggested questions after conversation starts */}
-                {uploadedFiles.length > 0 && messages.length > 0 && !isLoading && (
-                  <HStack gap={2} flexWrap="wrap" mt={1}>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => sendMessage("Tell me more")}
-                      borderRadius="full"
-                      px={3}
-                      fontSize="xs"
-                      color="gray.600"
-                      _dark={{ color: "gray.400" }}
-                      _hover={{ bg: "#EEF2FF", color: "#4F46E5", _dark: { bg: "#312E81", color: "#A5B4FC" } }}
-                    >
-                      Tell me more
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => sendMessage("Can you explain that differently?")}
-                      borderRadius="full"
-                      px={3}
-                      fontSize="xs"
-                      color="gray.600"
-                      _dark={{ color: "gray.400" }}
-                      _hover={{ bg: "#EEF2FF", color: "#4F46E5", _dark: { bg: "#312E81", color: "#A5B4FC" } }}
-                    >
-                      Explain differently
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => sendMessage("What are the implications?")}
-                      borderRadius="full"
-                      px={3}
-                      fontSize="xs"
-                      color="gray.600"
-                      _dark={{ color: "gray.400" }}
-                      _hover={{ bg: "#EEF2FF", color: "#4F46E5", _dark: { bg: "#312E81", color: "#A5B4FC" } }}
-                    >
-                      What are the implications?
-                    </Button>
-                  </HStack>
-                )}
               </VStack>
             </Container>
           </Box>
