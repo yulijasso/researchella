@@ -38,6 +38,8 @@ export default async function handler(req, res) {
     } else if (url.includes('.pdf')) {
       // Direct PDF link - try to get the HTML version or abstract page
       extractedData = await scrapePDFAlternative(url);
+    } else if (url.includes('wikipedia.org')) {
+      extractedData = await scrapeWikipedia(url);
     } else {
       // Generic scraper for other academic sites
       extractedData = await scrapeGeneric(url);
@@ -292,6 +294,87 @@ async function scrapeSemanticScholar(url) {
     console.error('Semantic Scholar scraping error:', error);
     // Fallback to generic scraper
     return scrapeGeneric(url);
+  }
+}
+
+// Scrape Wikipedia pages
+async function scrapeWikipedia(url) {
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+      },
+      timeout: 15000,
+    });
+
+    const $ = cheerio.load(response.data);
+
+    // Get title from the page header
+    const title = $('#firstHeading').text().trim() || $('title').text().replace(' - Wikipedia', '').trim();
+
+    // Remove unwanted elements
+    $('script, style, noscript, .navbox, .mw-editsection, .reference, .reflist, .sidebar, .infobox, .toc, .thumb, .mbox-small, .noprint').remove();
+
+    // Get the main content from Wikipedia's content div
+    const contentDiv = $('#mw-content-text .mw-parser-output');
+
+    // Extract all paragraphs from the main content
+    let content = `Title: ${title}\n\n`;
+
+    // Get the lead section (before first heading)
+    const leadParagraphs = contentDiv.children('p').map((_, el) => $(el).text().trim()).get().filter(text => text.length > 20);
+    if (leadParagraphs.length > 0) {
+      content += `Summary:\n${leadParagraphs.join('\n\n')}\n\n`;
+    }
+
+    // Get section headings and their content
+    contentDiv.find('h2, h3').each((_, heading) => {
+      const headingText = $(heading).find('.mw-headline').text().trim();
+
+      // Skip unwanted sections
+      if (['See also', 'References', 'External links', 'Notes', 'Further reading', 'Bibliography'].includes(headingText)) {
+        return;
+      }
+
+      if (headingText) {
+        content += `\n## ${headingText}\n`;
+
+        // Get all paragraphs until the next heading
+        let nextEl = $(heading).next();
+        while (nextEl.length && !nextEl.is('h2, h3')) {
+          if (nextEl.is('p')) {
+            const text = nextEl.text().trim();
+            if (text.length > 20) {
+              content += text + '\n\n';
+            }
+          } else if (nextEl.is('ul, ol')) {
+            // Include list items
+            nextEl.find('li').each((_, li) => {
+              const liText = $(li).text().trim();
+              if (liText.length > 10) {
+                content += `• ${liText}\n`;
+              }
+            });
+            content += '\n';
+          }
+          nextEl = nextEl.next();
+        }
+      }
+    });
+
+    console.log(`📄 Wikipedia content extracted: ${content.length} characters`);
+
+    return {
+      title,
+      authors: ['Wikipedia'],
+      abstract: leadParagraphs[0] || '',
+      content
+    };
+  } catch (error) {
+    console.error('Wikipedia scraping error:', error);
+    throw error;
   }
 }
 
