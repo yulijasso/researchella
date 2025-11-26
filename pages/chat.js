@@ -3281,7 +3281,7 @@ export default function Chat() {
                                 : "white"
                             }
                             _dark={{
-                              bg: msg.role === "user" ? "gray.700" : "gray.800"
+                              bg: msg.role === "user" ? "gray.700" : "#2D2D2D"
                             }}
                             px={4}
                             py={3}
@@ -3290,7 +3290,7 @@ export default function Chat() {
                             border={msg.role === "assistant" ? "1px solid" : "none"}
                             borderColor="gray.200"
                             _dark={{
-                              borderColor: "gray.700"
+                              borderColor: "#3D3D3D"
                             }}
                             transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                             _hover={msg.role === "assistant" ? {
@@ -3301,7 +3301,7 @@ export default function Chat() {
                           >
                             <Box
                               color={msg.role === "user" ? "white" : "gray.800"}
-                              _dark={{ color: msg.role === "user" ? "white" : "gray.100" }}
+                              _dark={{ color: "white" }}
                               fontSize="sm"
                               lineHeight="1.6"
                             >

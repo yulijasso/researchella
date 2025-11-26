@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { getAuth } from '@clerk/nextjs/server';
 import { addDocumentsToStore } from "../../lib/vectorStore";
+import { supabase } from '../../lib/supabase';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -55,13 +56,34 @@ export default async function handler(req, res) {
     // Add to vector store with session ID AND user ID for isolation
     const result = await addDocumentsToStore(chunks, sessionId, userId);
 
+    const title = extractedData.title || 'Untitled Document';
+
+    // Save to database for @mention and file listing
+    const { data: fileData, error: dbError } = await supabase
+      .from('uploaded_files')
+      .insert({
+        user_id: userId,
+        session_id: sessionId,
+        name: `${title}||${url}`, // Store URL with title for reference
+        type: 'url',
+        chunks: result.count,
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('Database error (non-fatal):', dbError);
+      // Continue even if database save fails - vector store is the critical part
+    }
+
     res.status(200).json({
       success: true,
-      title: extractedData.title || 'Untitled Document',
+      title: title,
       authors: extractedData.authors || [],
       abstract: extractedData.abstract || '',
       chunksAdded: result.count,
-      source: url
+      source: url,
+      fileId: fileData?.id || null
     });
 
   } catch (error) {
