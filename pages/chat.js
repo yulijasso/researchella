@@ -1559,7 +1559,9 @@ export default function Chat() {
               fontSize: '11px',
               fontWeight: '400',
               fontFamily: 'Inter, -apple-system, sans-serif',
-              color: isOpen ? 'var(--chakra-colors-blue-600)' : 'var(--chakra-colors-gray-600)',
+              color: isOpen
+                ? (colorMode === 'dark' ? '#A5B4FC' : '#4F46E5')
+                : (colorMode === 'dark' ? '#9CA3AF' : '#6B7280'),
               backgroundColor: 'transparent',
               padding: '0 2px',
               marginLeft: '1px',
@@ -3281,8 +3283,8 @@ export default function Chat() {
                                 : "white"
                             }
                             _dark={{
-                              bg: msg.role === "user" ? "#312E81" : "#2D2D2D",
-                              borderColor: msg.role === "user" ? "#3730A3" : "#3D3D3D"
+                              bg: msg.role === "user" ? "#312E81" : "#1A1A2E",
+                              borderColor: msg.role === "user" ? "#3730A3" : "#2D2D44"
                             }}
                             px={4}
                             py={3}
