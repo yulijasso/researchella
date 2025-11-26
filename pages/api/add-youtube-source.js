@@ -65,7 +65,14 @@ export default async function handler(req, res) {
 
     const title = videoInfo.basic_info?.title || `YouTube Video (${videoId})`;
     const author = videoInfo.basic_info?.author || 'Unknown';
+    const description = videoInfo.basic_info?.short_description || '';
+    const duration = videoInfo.basic_info?.duration || 0;
+    const viewCount = videoInfo.basic_info?.view_count || 0;
+    const keywords = videoInfo.basic_info?.keywords || [];
+
     console.log(`📝 Video title: ${title}`);
+    console.log(`📝 Author: ${author}`);
+    console.log(`📝 Description length: ${description.length} chars`);
 
     // Get transcript
     let transcript;
@@ -110,12 +117,30 @@ export default async function handler(req, res) {
       };
     });
 
+    // Build video metadata summary for RAG context
+    const durationStr = duration ? `${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')}` : 'Unknown';
+    const viewStr = viewCount ? viewCount.toLocaleString() : 'Unknown';
+
+    const videoSummary = [
+      `VIDEO TITLE: ${title}`,
+      `CHANNEL/AUTHOR: ${author}`,
+      `DURATION: ${durationStr}`,
+      viewCount ? `VIEWS: ${viewStr}` : null,
+      keywords.length > 0 ? `TOPICS: ${keywords.slice(0, 10).join(', ')}` : null,
+      description ? `\nVIDEO DESCRIPTION:\n${description}` : null,
+      `\n---\nTRANSCRIPT:\n`
+    ].filter(Boolean).join('\n');
+
     // Combine transcript segments into full text with timestamps for RAG
-    const fullText = transcriptForDisplay.map(seg =>
+    const transcriptText = transcriptForDisplay.map(seg =>
       `[${seg.timestamp}] ${seg.text}`
     ).join('\n');
 
-    console.log(`✂️ Transcript length: ${fullText.length} characters`);
+    // Full text includes video context + transcript
+    const fullText = videoSummary + transcriptText;
+
+    console.log(`✂️ Transcript length: ${transcriptText.length} characters`);
+    console.log(`✂️ Full content length: ${fullText.length} characters`);
 
     // Split content into chunks
     const textSplitter = new RecursiveCharacterTextSplitter({
@@ -126,9 +151,9 @@ export default async function handler(req, res) {
     const chunks = await textSplitter.splitText(fullText);
     console.log(`✂️ Split into ${chunks.length} chunks`);
 
-    // Add to vector store
+    // Add to vector store with rich metadata
     await addDocumentsToStore(
-      chunks.map(chunk => ({
+      chunks.map((chunk, idx) => ({
         content: chunk,
         metadata: {
           source: title,
@@ -136,6 +161,9 @@ export default async function handler(req, res) {
           url: `https://www.youtube.com/watch?v=${videoId}`,
           author: author,
           videoId: videoId,
+          description: description ? description.substring(0, 500) : '', // First 500 chars of description
+          chunkIndex: idx,
+          totalChunks: chunks.length,
         }
       })),
       sessionId,
@@ -169,9 +197,12 @@ export default async function handler(req, res) {
       title: title,
       author: author,
       videoId: videoId,
+      description: description,
       transcript: transcriptForDisplay, // Return transcript for UI display
-      duration: videoInfo.basic_info?.duration || null,
+      duration: duration || null,
       thumbnail: videoInfo.basic_info?.thumbnail?.[0]?.url || null,
+      viewCount: viewCount || null,
+      keywords: keywords.slice(0, 10),
     });
 
   } catch (error) {
