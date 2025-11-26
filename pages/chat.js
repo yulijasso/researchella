@@ -99,6 +99,8 @@ export default function Chat() {
   const [fileMenuIndex, setFileMenuIndex] = useState(null); // Which file's menu is open
   const [renameFileIndex, setRenameFileIndex] = useState(null); // Which file is being renamed
   const [renameFileValue, setRenameFileValue] = useState(""); // New file name input
+  const [editingSourceIndex, setEditingSourceIndex] = useState(null); // Which source is being edited in sidebar
+  const [editingSourceValue, setEditingSourceValue] = useState(""); // New source name input for sidebar
 
   // Autocomplete for @mentions
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -954,6 +956,40 @@ export default function Chat() {
     }
     setRenameFileIndex(null);
     setFileMenuIndex(null);
+  };
+
+  // Handle sidebar source rename (click to edit)
+  const handleSourceRename = async (idx) => {
+    const displayName = getDisplayName(uploadedFiles[idx]);
+    if (!editingSourceValue.trim() || editingSourceValue === displayName) {
+      setEditingSourceIndex(null);
+      return;
+    }
+    const file = uploadedFiles[idx];
+    try {
+      const response = await fetch('/api/files', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: file.id, name: editingSourceValue }),
+      });
+      if (response.ok) {
+        const updatedFiles = [...uploadedFiles];
+        // Preserve videoId/url suffix for youtube/url types
+        let newName = editingSourceValue;
+        if (file.type === 'youtube' && file.videoId) {
+          newName = `${editingSourceValue}||${file.videoId}`;
+        } else if (file.type === 'url' && file.url) {
+          newName = `${editingSourceValue}||${file.url}`;
+        }
+        updatedFiles[idx] = { ...file, name: newName };
+        setUploadedFiles(updatedFiles);
+        toaster.create({ title: "Source renamed", type: "success", duration: 2000 });
+      }
+    } catch (error) {
+      console.error('Error renaming source:', error);
+      toaster.create({ title: "Failed to rename", type: "error", duration: 3000 });
+    }
+    setEditingSourceIndex(null);
   };
 
   const handleWebSearch = async (query) => {
@@ -2450,9 +2486,42 @@ export default function Chat() {
                           </Box>
                           <VStack align="start" gap={0} flex={1} minW={0}>
                             <HStack gap={1}>
-                              <Text fontSize="xs" fontWeight="600" noOfLines={2}>
-                                {getDisplayName(file)}
-                              </Text>
+                              {editingSourceIndex === idx ? (
+                                <Input
+                                  value={editingSourceValue}
+                                  onChange={(e) => setEditingSourceValue(e.target.value)}
+                                  onBlur={() => handleSourceRename(idx)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleSourceRename(idx);
+                                    if (e.key === 'Escape') setEditingSourceIndex(null);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  autoFocus
+                                  size="xs"
+                                  fontSize="xs"
+                                  fontWeight="600"
+                                  p={1}
+                                  h="auto"
+                                  bg="white"
+                                  _dark={{ bg: "gray.700" }}
+                                />
+                              ) : (
+                                <Text
+                                  fontSize="xs"
+                                  fontWeight="600"
+                                  noOfLines={2}
+                                  cursor="text"
+                                  _hover={{ textDecoration: "underline", textDecorationStyle: "dotted" }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingSourceValue(getDisplayName(file));
+                                    setEditingSourceIndex(idx);
+                                  }}
+                                  title="Click to rename"
+                                >
+                                  {getDisplayName(file)}
+                                </Text>
+                              )}
                               {file.url && (
                                 <IconButton
                                   icon={<FiExternalLink />}
