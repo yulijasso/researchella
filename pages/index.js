@@ -1,8 +1,11 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Image from "next/image";
-import { Box, Button, Heading, Text, VStack, HStack } from "@chakra-ui/react";
+import { useState } from "react";
+import { Box, Button, Heading, Text, VStack, HStack, IconButton } from "@chakra-ui/react";
 import { keyframes } from "@emotion/react";
+import { SignIn, SignUp } from "@clerk/nextjs";
+import { FiX } from "react-icons/fi";
 import { useAuth } from "@/contexts/AuthContext";
 import UserButton from "@/components/UserButton";
 
@@ -14,6 +17,7 @@ const fadeIn = keyframes`
 export default function Home() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const [authMode, setAuthMode] = useState(null); // null, 'sign-in', or 'sign-up'
 
   return (
     <>
@@ -128,6 +132,26 @@ export default function Home() {
             box-shadow: 2px 2px 0px rgba(139, 58, 26, 0.3);
             background: rgba(139, 58, 26, 0.05);
           }
+
+          .auth-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .auth-modal {
+            position: relative;
+            max-width: 450px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+          }
+
         `}</style>
       </Head>
 
@@ -200,7 +224,7 @@ export default function Home() {
               {!user && !loading && (
                 <>
                   <Button
-                    onClick={() => router.push('/auth/sign-up')}
+                    onClick={() => setAuthMode('sign-up')}
                     className="retro-button"
                     size="lg"
                     h="56px"
@@ -210,7 +234,7 @@ export default function Home() {
                     Start Now
                   </Button>
                   <Button
-                    onClick={() => router.push('/auth/sign-in')}
+                    onClick={() => setAuthMode('sign-in')}
                     className="retro-button-outline"
                     size="lg"
                     h="56px"
@@ -237,6 +261,38 @@ export default function Home() {
             </HStack>
           </VStack>
         </Box>
+
+        {/* Auth Modal */}
+        {authMode && (
+          <Box className="auth-modal-overlay" onClick={() => setAuthMode(null)}>
+            <Box className="auth-modal" onClick={(e) => e.stopPropagation()}>
+              <IconButton
+                aria-label="Close"
+                icon={<FiX />}
+                position="absolute"
+                top={3}
+                right={3}
+                size="sm"
+                variant="ghost"
+                onClick={() => setAuthMode(null)}
+              />
+
+              {authMode === 'sign-in' && (
+                <SignIn
+                  routing="hash"
+                  forceRedirectUrl="/sessions"
+                />
+              )}
+              {authMode === 'sign-up' && (
+                <SignUp
+                  routing="hash"
+                  forceRedirectUrl="/sessions"
+                />
+              )}
+
+            </Box>
+          </Box>
+        )}
       </Box>
     </>
   );
