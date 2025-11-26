@@ -108,6 +108,14 @@ export default async function handler(req, res) {
 
           contextInfo += `[CHUNK-${index + 1}]\n`;
           contextInfo += `File: ${source}${page} | Type: ${type}\n`;
+
+          // Add extra metadata for YouTube sources
+          if (type === 'youtube') {
+            if (doc.metadata.author) contextInfo += `Channel: ${doc.metadata.author}\n`;
+            if (doc.metadata.description) contextInfo += `Description: ${doc.metadata.description}\n`;
+            if (doc.metadata.url) contextInfo += `URL: ${doc.metadata.url}\n`;
+          }
+
           contextInfo += `Content (numbered sentences):\n`;
 
           sentences.forEach((sentence, sentIdx) => {
