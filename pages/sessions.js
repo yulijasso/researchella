@@ -492,7 +492,17 @@ export default function Sessions() {
                           </HStack>
                         ) : (
                           <>
-                            <Text fontWeight="500" color="black" _dark={{ color: "white" }} fontSize="md" noOfLines={2}>
+                            <Text
+                              fontWeight="500"
+                              color="black"
+                              _dark={{ color: "white" }}
+                              fontSize="md"
+                              noOfLines={2}
+                              cursor="text"
+                              _hover={{ textDecoration: "underline", textDecorationStyle: "dotted" }}
+                              onClick={(e) => startEditing(session, e)}
+                              title="Click to rename"
+                            >
                               {session.name}
                             </Text>
                             <HStack gap={3} fontSize="xs" color="gray.500">
