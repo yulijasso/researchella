@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm install --legacy-peer-deps --ignore-scripts",
   "functions": {
     "pages/api/upload.js": {
       "maxDuration": 60,
