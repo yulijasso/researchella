@@ -3345,13 +3345,12 @@ export default function Chat() {
                       </Box>
                       <Box
                         bg="white"
-                        _dark={{ bg: "gray.900" }}
+                        _dark={{ bg: "#1A1A2E", borderColor: "#2D2D44" }}
                         px={4}
                         py={3}
                         borderRadius="2xl"
                         border="1px solid"
                         borderColor="gray.200"
-                        _dark={{ borderColor: "gray.700" }}
                       >
                         <HStack gap={1}>
                           <Box
