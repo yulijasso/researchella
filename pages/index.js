@@ -1,10 +1,15 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
 import Image from "next/image";
-import { Box, Button, Heading, Text, VStack, HStack, Container, Flex, Icon, SimpleGrid } from "@chakra-ui/react";
-import { FiArrowRight, FiUpload, FiMessageCircle, FiBookOpen, FiZap, FiShield, FiGlobe } from "react-icons/fi";
+import { Box, Button, Heading, Text, VStack, HStack } from "@chakra-ui/react";
+import { keyframes } from "@emotion/react";
 import { useAuth } from "@/contexts/AuthContext";
 import UserButton from "@/components/UserButton";
+
+const fadeIn = keyframes`
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
 
 export default function Home() {
   const router = useRouter();
@@ -13,355 +18,226 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>PaperSage - AI Research Assistant</title>
+        <title>Researchella - Your Research Festival</title>
         <meta name="description" content="Turn your research into conversations" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="true" />
+        <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Kalam:wght@400;700&display=swap" rel="stylesheet" />
+        <style>{`
+          @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(5deg); }
+          }
+
+          @keyframes bounce {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+          }
+
+          .hand-drawn-bg {
+            background:
+              /* Subtle halftone dots */
+              radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+              radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+              /* Newspaper texture grain */
+              repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(139, 58, 26, 0.01) 2px,
+                rgba(139, 58, 26, 0.01) 4px
+              ),
+              repeating-linear-gradient(
+                90deg,
+                transparent,
+                transparent 2px,
+                rgba(139, 58, 26, 0.01) 2px,
+                rgba(139, 58, 26, 0.01) 4px
+              ),
+              /* Base aged newspaper color */
+              #F5E6D3;
+            background-size:
+              20px 20px,
+              20px 20px,
+              100% 100%,
+              100% 100%,
+              100% 100%;
+            background-position:
+              0 0,
+              10px 10px,
+              0 0,
+              0 0,
+              0 0;
+            position: relative;
+            overflow: hidden;
+          }
+
+          .retro-outlined-text {
+            font-family: 'Righteous', cursive;
+            color: #BF572A;
+            -webkit-text-stroke: 3px #8B3A1A;
+            paint-order: stroke fill;
+            text-shadow:
+              4px 4px 0px rgba(139, 58, 26, 0.3),
+              8px 8px 0px rgba(139, 58, 26, 0.15);
+            letter-spacing: 0.02em;
+          }
+
+          .hand-drawn-border {
+            border: none;
+            border-radius: 0px;
+            background: transparent;
+            box-shadow: none;
+          }
+
+          .retro-button {
+            border: 4px solid #8B3A1A;
+            border-radius: 50px;
+            background: #BF572A;
+            color: #FFF4E6;
+            font-family: 'Righteous', cursive;
+            box-shadow:
+              4px 4px 0px #8B3A1A;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+
+          .retro-button:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px #8B3A1A;
+          }
+
+          .retro-button-outline {
+            border: 4px solid #8B3A1A;
+            border-radius: 50px;
+            background: transparent;
+            color: #8B3A1A;
+            font-family: 'Righteous', cursive;
+            box-shadow:
+              4px 4px 0px rgba(139, 58, 26, 0.3);
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+
+          .retro-button-outline:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px rgba(139, 58, 26, 0.3);
+            background: rgba(139, 58, 26, 0.05);
+          }
+        `}</style>
       </Head>
 
-      <Box minH="100vh" bg="white" position="relative" overflow="hidden">
-        {/* Gradient Background - White to Sage */}
-        <Box
-          position="absolute"
-          inset={0}
-          bgGradient="linear(to-br, white 0%, teal.50 40%, teal.100 100%)"
-        />
+      <Box
+        className="hand-drawn-bg"
+        minH="100vh"
+        w="100vw"
+        position="relative"
+        overflow="hidden"
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+        p={8}
+      >
+        {/* User button if logged in */}
+        {user && (
+          <Box position="absolute" top={4} right={6} zIndex={10}>
+            <UserButton afterSignOutUrl="/" />
+          </Box>
+        )}
 
-        {/* Soft Glow Effects */}
         <Box
-          position="absolute"
-          top="-10%"
-          right="-5%"
-          w="50%"
-          h="50%"
-          bg="teal.200"
-          filter="blur(150px)"
-          opacity={0.3}
-          borderRadius="full"
-        />
-        <Box
-          position="absolute"
-          bottom="-5%"
-          left="-5%"
-          w="35%"
-          h="35%"
-          bg="teal.300"
-          filter="blur(120px)"
-          opacity={0.2}
-          borderRadius="full"
-        />
+          className="hand-drawn-border"
+          maxW="1200px"
+          w="full"
+          p={{ base: 8, md: 12, lg: 16 }}
+          position="relative"
+          sx={{ animation: `${fadeIn} 1s ease-out` }}
+        >
+          <VStack spacing={1} align="center" textAlign="center">
+            {/* Logo */}
+            <Box mb={-4}>
+              <Image
+                src="/logo.png"
+                alt="Researchella"
+                width={360}
+                height={120}
+                style={{ objectFit: "contain" }}
+              />
+            </Box>
 
-        {/* Content */}
-        <Box position="relative" zIndex={1}>
-          {/* Simple Header with Logo */}
-          <Flex px={6} py={4} align="center" justify="space-between">
-            <Image src="/logo.png" alt="PaperSage" width={140} height={40} style={{ objectFit: "contain" }} />
-            <HStack gap={3}>
+            {/* Main content */}
+            <VStack gap={4} align="center" textAlign="center">
+              <Heading
+                className="retro-outlined-text"
+                size={{ base: "3xl", md: "4xl", lg: "5xl" }}
+                fontWeight="900"
+                lineHeight="1.1"
+                textTransform="uppercase"
+              >
+                Your research
+                <br />
+                festival starts here
+              </Heading>
+
+              <Text
+                fontSize={{ base: "lg", md: "xl" }}
+                fontFamily="'Kalam', cursive"
+                color="#8B3A1A"
+                maxW="2xl"
+                lineHeight="1.6"
+                fontWeight="400"
+              >
+                Upload papers, ask questions, get instant AI-powered insights with accurate citations
+              </Text>
+            </VStack>
+
+            {/* CTA Buttons */}
+            <HStack gap={4} pt={4}>
               {!user && !loading && (
                 <>
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    color="gray.600"
-                    _hover={{ color: "gray.900" }}
-                    onClick={() => router.push("/auth/sign-in")}
+                    onClick={() => router.push('/auth/sign-up')}
+                    className="retro-button"
+                    size="lg"
+                    h="56px"
+                    px={10}
+                    fontSize="md"
                   >
-                    Sign in
+                    Start Now
                   </Button>
                   <Button
-                    size="sm"
-                    bg="teal.600"
-                    color="white"
-                    _hover={{ bg: "teal.700" }}
-                    onClick={() => router.push("/auth/sign-up")}
+                    onClick={() => router.push('/auth/sign-in')}
+                    className="retro-button-outline"
+                    size="lg"
+                    h="56px"
+                    px={10}
+                    fontSize="md"
                   >
-                    Sign up
+                    Sign In
                   </Button>
                 </>
               )}
-              {user && <UserButton afterSignOutUrl="/" />}
+
+              {user && (
+                <Button
+                  onClick={() => router.push("/sessions")}
+                  className="retro-button"
+                  size="lg"
+                  h="56px"
+                  px={10}
+                  fontSize="md"
+                >
+                  Go to Dashboard
+                </Button>
+              )}
             </HStack>
-          </Flex>
-
-          {/* Hero Section */}
-          <Container maxW="6xl" centerContent>
-            <VStack
-              gap={8}
-              align="center"
-              textAlign="center"
-              w="full"
-              pt={{ base: 20, md: 28 }}
-              pb={{ base: 16, md: 24 }}
-            >
-              {/* Badge */}
-              <Box
-                px={4}
-                py={2}
-                bg="white"
-                borderRadius="full"
-                border="1px solid"
-                borderColor="gray.200"
-                shadow="sm"
-              >
-                <HStack gap={2}>
-                  <Box w={2} h={2} bg="teal.500" borderRadius="full" />
-                  <Text fontSize="sm" color="gray.600" fontWeight="500">
-                    Powered by GPT-4 & RAG
-                  </Text>
-                </HStack>
-              </Box>
-
-              {/* Main Heading */}
-              <VStack gap={6} maxW="4xl" align="center" textAlign="center">
-                <Heading
-                  size={{ base: "3xl", md: "4xl", lg: "5xl" }}
-                  fontWeight="700"
-                  letterSpacing="-0.03em"
-                  lineHeight="1.1"
-                  color="gray.800"
-                  textAlign="center"
-                >
-                  Turn your research
-                  <br />
-                  <Text as="span" bgGradient="linear(to-r, teal.500, teal.700)" bgClip="text">
-                    into conversations
-                  </Text>
-                </Heading>
-
-                <Text
-                  fontSize={{ base: "lg", md: "xl" }}
-                  color="gray.600"
-                  maxW="2xl"
-                  lineHeight="1.7"
-                  textAlign="center"
-                >
-                  Upload papers, ask questions, get instant AI-powered insights
-                  with accurate citations. Your intelligent research companion.
-                </Text>
-              </VStack>
-
-              {/* CTA Buttons */}
-              <HStack gap={4} pt={4}>
-                {!user && !loading && (
-                  <>
-                    <Button
-                      onClick={() => router.push('/auth/sign-up')}
-                      size="lg"
-                      h="56px"
-                      px={8}
-                      fontSize="md"
-                      fontWeight="600"
-                      bg="teal.600"
-                      color="white"
-                      borderRadius="xl"
-                      rightIcon={<FiArrowRight />}
-                      _hover={{
-                        transform: "translateY(-2px)",
-                        shadow: "0 20px 40px rgba(20, 184, 166, 0.3)",
-                        bg: "teal.700",
-                      }}
-                      _active={{ transform: "translateY(0)" }}
-                      transition="all 0.2s"
-                    >
-                      Get started free
-                    </Button>
-                    <Button
-                      onClick={() => router.push('/auth/sign-in')}
-                      size="lg"
-                      h="56px"
-                      px={8}
-                      fontSize="md"
-                      fontWeight="500"
-                      bg="white"
-                      color="gray.700"
-                      borderRadius="xl"
-                      border="1px solid"
-                      borderColor="gray.200"
-                      _hover={{
-                        bg: "gray.50",
-                        borderColor: "gray.300",
-                      }}
-                      transition="all 0.2s"
-                    >
-                      Sign in
-                    </Button>
-                  </>
-                )}
-
-                {user && (
-                  <Button
-                    onClick={() => router.push("/sessions")}
-                    size="lg"
-                    h="56px"
-                    px={8}
-                    fontSize="md"
-                    fontWeight="600"
-                    bg="teal.600"
-                    color="white"
-                    borderRadius="xl"
-                    rightIcon={<FiArrowRight />}
-                    _hover={{
-                      transform: "translateY(-2px)",
-                      shadow: "0 20px 40px rgba(20, 184, 166, 0.3)",
-                      bg: "teal.700",
-                    }}
-                    _active={{ transform: "translateY(0)" }}
-                    transition="all 0.2s"
-                  >
-                    Go to dashboard
-                  </Button>
-                )}
-              </HStack>
-
-              {/* Feature Pills */}
-              <HStack
-                gap={4}
-                pt={6}
-                flexWrap="wrap"
-                justify="center"
-              >
-                {["PDF & Images", "Instant Citations", "Multi-Session"].map((feature) => (
-                  <Box
-                    key={feature}
-                    px={4}
-                    py={2}
-                    bg="white"
-                    borderRadius="full"
-                    border="1px solid"
-                    borderColor="gray.200"
-                  >
-                    <Text fontSize="sm" color="gray.600">
-                      {feature}
-                    </Text>
-                  </Box>
-                ))}
-              </HStack>
-            </VStack>
-          </Container>
-
-          {/* Features Section */}
-          <Box py={{ base: 16, md: 24 }}>
-            <Container maxW="6xl">
-              <VStack gap={16}>
-                {/* Section Header */}
-                <VStack gap={4} textAlign="center">
-                  <Text
-                    fontSize="sm"
-                    fontWeight="600"
-                    color="teal.400"
-                    textTransform="uppercase"
-                    letterSpacing="0.1em"
-                  >
-                    Features
-                  </Text>
-                  <Heading size="2xl" color="gray.800" fontWeight="600">
-                    Everything you need for research
-                  </Heading>
-                </VStack>
-
-                {/* Feature Grid */}
-                <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} gap={6} w="full">
-                  <FeatureCard
-                    icon={FiUpload}
-                    title="Smart Upload"
-                    description="Drag and drop PDFs, images, or documents. Our AI extracts and indexes everything automatically."
-                  />
-                  <FeatureCard
-                    icon={FiMessageCircle}
-                    title="Natural Chat"
-                    description="Ask questions in plain English. Get detailed answers with precise citations to your sources."
-                  />
-                  <FeatureCard
-                    icon={FiBookOpen}
-                    title="Deep Analysis"
-                    description="Understand complex papers instantly. Our AI breaks down concepts and explains them clearly."
-                  />
-                  <FeatureCard
-                    icon={FiZap}
-                    title="Lightning Fast"
-                    description="Get answers in seconds, not hours. Powered by advanced RAG and GPT-4 technology."
-                  />
-                  <FeatureCard
-                    icon={FiShield}
-                    title="Secure & Private"
-                    description="Your documents stay private. Session isolation ensures your research remains confidential."
-                  />
-                  <FeatureCard
-                    icon={FiGlobe}
-                    title="Multi-Format"
-                    description="Works with PDFs, images, screenshots, and more. GPT-4 Vision handles it all."
-                  />
-                </SimpleGrid>
-              </VStack>
-            </Container>
-          </Box>
-
-          {/* Footer */}
-          <Container maxW="6xl" py={12}>
-            <Flex
-              direction={{ base: "column", md: "row" }}
-              gap={4}
-              align="center"
-              justify="space-between"
-              borderTop="1px solid"
-              borderColor="gray.200"
-              pt={8}
-            >
-              <Image src="/logo.png" alt="PaperSage" width={120} height={35} style={{ objectFit: "contain" }} />
-              <Text color="gray.600" fontSize="sm">
-                © 2025 PaperSage. AI Research Assistant.
-              </Text>
-              <HStack gap={6}>
-                <Text color="gray.600" fontSize="sm" cursor="pointer" _hover={{ color: "gray.900" }}>
-                  Privacy
-                </Text>
-                <Text color="gray.600" fontSize="sm" cursor="pointer" _hover={{ color: "gray.900" }}>
-                  Terms
-                </Text>
-              </HStack>
-            </Flex>
-          </Container>
+          </VStack>
         </Box>
       </Box>
     </>
-  );
-}
-
-function FeatureCard({ icon, title, description }) {
-  return (
-    <Box
-      p={6}
-      bg="white"
-      borderRadius="2xl"
-      border="1px solid"
-      borderColor="gray.200"
-      transition="all 0.3s"
-      shadow="sm"
-      _hover={{
-        bg: "white",
-        borderColor: "teal.400",
-        transform: "translateY(-4px)",
-        shadow: "lg",
-      }}
-    >
-      <VStack align="start" gap={4}>
-        <Box
-          p={3}
-          bg="teal.500"
-          bgGradient="linear(to-br, teal.400, teal.600)"
-          borderRadius="xl"
-        >
-          <Icon as={icon} boxSize={6} color="white" />
-        </Box>
-        <VStack align="start" gap={2}>
-          <Heading size="md" fontWeight="600" color="gray.800">
-            {title}
-          </Heading>
-          <Text fontSize="sm" color="gray.600" lineHeight="1.7">
-            {description}
-          </Text>
-        </VStack>
-      </VStack>
-    </Box>
   );
 }

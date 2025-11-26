@@ -222,9 +222,10 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
 
     if (matchIndex === -1) {
       // Fallback: try even shorter sequences (10-15 chars)
+      const noSpacesHighlight = removeAllSpaces(highlightText);
       const shortSearches = [];
-      for (let i = 0; i < noSpaces.length - 10; i += 10) {
-        shortSearches.push(noSpaces.substring(i, i + 12));
+      for (let i = 0; i < noSpacesHighlight.length - 10; i += 10) {
+        shortSearches.push(noSpacesHighlight.substring(i, i + 12));
       }
       for (const search of shortSearches) {
         matchIndex = noSpacesPageText.indexOf(search);
@@ -243,12 +244,14 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
     }
 
     // Use the noSpaceCharToOriginal mapping to find spans to highlight
+    // Use the FULL highlight text length, not just the matched search pattern
+    const noSpacesHighlight = removeAllSpaces(highlightText);
     let start = matchIndex;
-    let end = matchIndex + matchedSearch.length;
+    let end = matchIndex + noSpacesHighlight.length;
 
-    // Expand slightly to capture full words
-    start = Math.max(0, start - 5);
-    end = Math.min(noSpaceCharToOriginal.length, end + 20);
+    // Don't expand - highlight EXACTLY the matched text
+    start = Math.max(0, start);
+    end = Math.min(noSpaceCharToOriginal.length, end);
 
     // Highlight all spans in the matched range
     for (let i = start; i < end && i < noSpaceCharToOriginal.length; i++) {

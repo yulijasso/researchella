@@ -5,7 +5,6 @@ import Image from "next/image";
 import {
   Box,
   Button,
-  Container,
   Flex,
   Heading,
   IconButton,
@@ -14,9 +13,9 @@ import {
   HStack,
   Input,
   Icon,
-  SimpleGrid,
+  Grid,
 } from "@chakra-ui/react";
-import { FiPlus, FiMessageSquare, FiTrash2, FiArrowRight, FiFile, FiClock, FiAlertCircle, FiHome } from "react-icons/fi";
+import { FiPlus, FiMessageSquare, FiTrash2, FiArrowRight, FiFile, FiClock, FiAlertCircle, FiHome, FiEdit2, FiCheck, FiX } from "react-icons/fi";
 import { toaster } from "@/components/ui/toaster";
 import { useAuth } from "@/contexts/AuthContext";
 import UserButton from "@/components/UserButton";
@@ -30,6 +29,19 @@ import {
   DialogActionTrigger,
 } from "@/components/ui/dialog";
 
+const formatDate = (dateValue) => {
+  if (!dateValue) return "No date";
+  const date = new Date(dateValue);
+  if (isNaN(date.getTime())) {
+    const timestamp = parseInt(dateValue);
+    if (!isNaN(timestamp) && timestamp > 1000000000000) {
+      return new Date(timestamp).toLocaleDateString();
+    }
+    return "No date";
+  }
+  return date.toLocaleDateString();
+};
+
 export default function Sessions() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -38,6 +50,8 @@ export default function Sessions() {
   const [isCreating, setIsCreating] = useState(false);
   const [newSessionName, setNewSessionName] = useState("");
   const [sessionToDelete, setSessionToDelete] = useState(null);
+  const [editingSession, setEditingSession] = useState(null);
+  const [editName, setEditName] = useState("");
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -112,6 +126,59 @@ export default function Sessions() {
     }
   };
 
+  const startEditing = (session, e) => {
+    e.stopPropagation();
+    setEditingSession(session.id);
+    setEditName(session.name);
+  };
+
+  const cancelEditing = (e) => {
+    if (e) e.stopPropagation();
+    setEditingSession(null);
+    setEditName("");
+  };
+
+  const saveSessionName = async (sessionId, e) => {
+    if (e) e.stopPropagation();
+
+    if (!editName.trim()) {
+      cancelEditing();
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, name: editName.trim() }),
+      });
+
+      if (!response.ok) throw new Error('Failed to rename session');
+
+      setSessions(sessions.map(s =>
+        s.id === sessionId ? { ...s, name: editName.trim() } : s
+      ));
+
+      toaster.create({
+        title: "Renamed",
+        description: "Notebook renamed successfully",
+        status: "success",
+        duration: 2000,
+      });
+
+      setEditingSession(null);
+      setEditName("");
+    } catch (error) {
+      console.error('Error renaming session:', error);
+      toaster.create({
+        title: "Error",
+        description: "Failed to rename. Please try again.",
+        status: "error",
+        duration: 3000,
+      });
+    }
+  };
+
   const confirmDelete = (sessionId, sessionName) => {
     setSessionToDelete({ id: sessionId, name: sessionName });
   };
@@ -167,156 +234,153 @@ export default function Sessions() {
   return (
     <>
       <Head>
-        <title>Dashboard - PaperSage</title>
+        <title>Dashboard - Researchella</title>
         <meta name="description" content="Manage your research sessions" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      <Box minH="100vh" bg="white" position="relative" overflow="hidden">
-        {/* Gradient Background */}
-        <Box
-          position="absolute"
-          inset={0}
-          bgGradient="linear(to-br, white 0%, teal.50 40%, teal.100 100%)"
-        />
-
-        {/* Glow Effects */}
-        <Box
-          position="absolute"
-          top="10%"
-          right="20%"
-          w="40%"
-          h="40%"
-          bg="teal.200"
-          filter="blur(180px)"
-          opacity={0.3}
-          borderRadius="full"
-        />
-
-        {/* Content */}
-        <Box position="relative" zIndex={1}>
-          {/* Header */}
-          <Flex
-            px={6}
-            py={4}
-            align="center"
-            gap={4}
-            borderBottom="1px solid"
-            borderColor="gray.200"
+      <Box bg="white" minH="100vh">
+        {/* Header */}
+        <Flex
+          px={6}
+          py={4}
+          align="center"
+          gap={4}
+          borderBottom="1px solid"
+          borderColor="gray.200"
+        >
+          <Box cursor="pointer" onClick={() => router.push('/')}>
+            <Image src="/logo.png" alt="Researchella" width={120} height={35} style={{ objectFit: "contain" }} />
+          </Box>
+          <Text fontSize="sm" color="gray.500" fontWeight="500">
+            Dashboard
+          </Text>
+          <Box flex={1} />
+          <IconButton
+            variant="ghost"
+            color="gray.600"
+            _hover={{ color: "black", bg: "gray.100" }}
+            onClick={() => router.push('/')}
+            aria-label="Home"
           >
-            <Box cursor="pointer" onClick={() => router.push('/')}>
-              <Image src="/logo.png" alt="PaperSage" width={120} height={35} style={{ objectFit: "contain" }} />
-            </Box>
-            <Box
-              px={3}
-              py={1}
-              bg="teal.50"
-              borderRadius="full"
-              border="1px solid"
-              borderColor="teal.200"
+            <FiHome />
+          </IconButton>
+          <UserButton afterSignOutUrl="/" />
+        </Flex>
+
+        {/* Main Content */}
+        <Box py={12} px={{ base: 6, md: 12 }} maxW="100%">
+          <VStack gap={8} align="stretch">
+            {/* Header Section */}
+            <VStack gap={2} align="start">
+              <Heading size="xl" color="black" fontWeight="600">
+                Your Notebooks
+              </Heading>
+              <Text color="gray.500" fontSize="md">
+                Create a new notebook or continue where you left off
+              </Text>
+            </VStack>
+
+            {/* Notebooks Grid */}
+            <Grid
+              templateColumns="repeat(auto-fill, minmax(280px, 1fr))"
+              gap={4}
             >
-              <Text fontSize="xs" color="teal.700" fontWeight="500">Dashboard</Text>
-            </Box>
-            <Box flex={1} />
-            <IconButton
-              icon={<FiHome />}
-              variant="ghost"
-              color="gray.500"
-              _hover={{ color: "gray.800", bg: "gray.100" }}
-              onClick={() => router.push('/')}
-              aria-label="Home"
-            />
-            <UserButton afterSignOutUrl="/" />
-          </Flex>
-
-          {/* Main Content */}
-          <Container maxW="5xl" py={12}>
-            <VStack gap={10} align="stretch">
-              {/* Header Section */}
-              <VStack gap={3} align="start">
-                <Heading size="2xl" color="gray.800" fontWeight="700">
-                  Your Sessions
-                </Heading>
-                <Text color="gray.600" fontSize="lg">
-                  Create and manage your research conversations
-                </Text>
-              </VStack>
-
-              {/* Create New Session */}
+              {/* New Notebook Card */}
               {!isCreating ? (
-                <Button
-                  leftIcon={<FiPlus />}
-                  size="lg"
-                  h="64px"
-                  fontSize="md"
-                  fontWeight="600"
-                  bg="teal.600"
-                  color="white"
-                  borderRadius="xl"
-                  _hover={{
-                    bg: "teal.500",
-                    transform: "translateY(-2px)",
-                    shadow: "0 10px 40px rgba(20, 184, 166, 0.3)",
-                  }}
-                  _active={{ transform: "translateY(0)" }}
+                <Box
+                  p={8}
+                  bg="white"
+                  borderRadius="lg"
+                  border="1px dashed"
+                  borderColor="gray.300"
+                  cursor="pointer"
                   transition="all 0.2s"
+                  minH="180px"
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  _hover={{
+                    borderColor: "black",
+                    bg: "gray.50",
+                  }}
                   onClick={() => setIsCreating(true)}
                 >
-                  Create New Session
-                </Button>
+                  <VStack gap={3}>
+                    <Box
+                      p={3}
+                      bg="black"
+                      borderRadius="full"
+                    >
+                      <Icon as={FiPlus} boxSize={5} color="white" />
+                    </Box>
+                    <Text
+                      color="gray.700"
+                      fontWeight="500"
+                      fontSize="sm"
+                    >
+                      New Notebook
+                    </Text>
+                  </VStack>
+                </Box>
               ) : (
                 <Box
-                  p={6}
+                  p={5}
                   bg="white"
-                  borderRadius="2xl"
+                  borderRadius="lg"
                   border="1px solid"
-                  borderColor="gray.200"
-                  shadow="sm"
+                  borderColor="black"
+                  minH="180px"
                 >
-                  <VStack gap={4} align="stretch">
-                    <Heading size="md" color="gray.800">New Session</Heading>
-                    <Input
-                      placeholder="e.g., Machine Learning Papers, Thesis Research..."
-                      value={newSessionName}
-                      onChange={(e) => setNewSessionName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") createNewSession();
-                        if (e.key === "Escape") {
-                          setIsCreating(false);
-                          setNewSessionName("");
-                        }
-                      }}
-                      size="lg"
-                      bg="gray.50"
-                      border="1px solid"
-                      borderColor="gray.200"
-                      color="gray.800"
-                      _placeholder={{ color: "gray.400" }}
-                      _focus={{ borderColor: "teal.500", boxShadow: "0 0 0 1px var(--chakra-colors-teal-500)" }}
-                      borderRadius="xl"
-                      autoFocus
-                    />
-                    <HStack gap={3}>
+                  <VStack gap={4} align="stretch" h="full" justify="space-between">
+                    <VStack gap={3} align="stretch">
+                      <Text size="sm" color="black" fontWeight="600">
+                        New Notebook
+                      </Text>
+                      <Input
+                        placeholder="Name your notebook..."
+                        value={newSessionName}
+                        onChange={(e) => setNewSessionName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") createNewSession();
+                          if (e.key === "Escape") {
+                            setIsCreating(false);
+                            setNewSessionName("");
+                          }
+                        }}
+                        size="md"
+                        bg="white"
+                        border="1px solid"
+                        borderColor="gray.300"
+                        color="black"
+                        _placeholder={{ color: "gray.400" }}
+                        _focus={{ borderColor: "black", boxShadow: "none" }}
+                        borderRadius="md"
+                        autoFocus
+                      />
+                    </VStack>
+                    <HStack gap={2}>
                       <Button
-                        bg="teal.600"
+                        size="sm"
+                        bg="black"
                         color="white"
-                        _hover={{ bg: "teal.500" }}
+                        _hover={{ bg: "gray.800" }}
                         onClick={createNewSession}
                         flex={1}
-                        borderRadius="xl"
                       >
                         Create
                       </Button>
                       <Button
-                        variant="ghost"
-                        color="gray.600"
-                        _hover={{ color: "gray.800", bg: "gray.100" }}
+                        size="sm"
+                        variant="outline"
+                        color="black"
+                        borderColor="gray.300"
+                        _hover={{ bg: "gray.50" }}
                         onClick={() => {
                           setIsCreating(false);
                           setNewSessionName("");
                         }}
                         flex={1}
-                        borderRadius="xl"
                       >
                         Cancel
                       </Button>
@@ -325,136 +389,147 @@ export default function Sessions() {
                 </Box>
               )}
 
-              {/* Sessions List */}
-              {sessions.length === 0 ? (
+              {/* Existing Sessions */}
+              {sessions.map((session) => (
                 <Box
-                  p={16}
-                  textAlign="center"
-                  borderRadius="2xl"
-                  border="2px dashed"
-                  borderColor="whiteAlpha.200"
-                  bg="whiteAlpha.50"
+                  key={session.id}
+                  p={5}
+                  bg="white"
+                  borderRadius="lg"
+                  border="1px solid"
+                  borderColor="gray.200"
+                  cursor="pointer"
+                  transition="all 0.2s"
+                  minH="180px"
+                  _hover={{
+                    borderColor: "black",
+                    bg: "gray.50",
+                  }}
+                  onClick={() => editingSession !== session.id && openSession(session.id)}
                 >
-                  <VStack gap={4}>
-                    <Box
-                      p={4}
-                      bg="whiteAlpha.100"
-                      borderRadius="full"
-                    >
-                      <Icon as={FiMessageSquare} boxSize={10} color="gray.500" />
-                    </Box>
-                    <VStack gap={1}>
-                      <Text color="gray.300" fontWeight="500" fontSize="lg">
-                        No sessions yet
-                      </Text>
-                      <Text color="gray.500">
-                        Create your first session to get started
-                      </Text>
-                    </VStack>
-                  </VStack>
-                </Box>
-              ) : (
-                <SimpleGrid columns={{ base: 1, md: 2 }} gap={4}>
-                  {sessions.map((session) => (
-                    <Box
-                      key={session.id}
-                      p={5}
-                      bg="whiteAlpha.50"
-                      borderRadius="2xl"
-                      border="1px solid"
-                      borderColor="whiteAlpha.100"
-                      cursor="pointer"
-                      transition="all 0.3s"
-                      _hover={{
-                        bg: "whiteAlpha.100",
-                        borderColor: "teal.500",
-                        transform: "translateY(-4px)",
-                        shadow: "0 10px 40px rgba(0,0,0,0.3)",
-                      }}
-                      onClick={() => openSession(session.id)}
-                    >
-                      <Flex direction="column" gap={4}>
-                        <Flex align="start" justify="space-between">
-                          <HStack gap={3}>
-                            <Box
-                              p={2.5}
-                              bgGradient="linear(to-br, teal.400, teal.600)"
-                              borderRadius="lg"
-                            >
-                              <Icon as={FiMessageSquare} boxSize={5} color="white" />
-                            </Box>
-                            <VStack align="start" gap={0}>
-                              <Text fontWeight="600" color="white" fontSize="lg" noOfLines={1}>
-                                {session.name}
-                              </Text>
-                              <HStack gap={3} fontSize="xs" color="gray.500">
-                                <HStack gap={1}>
-                                  <FiClock size={12} />
-                                  <Text>{new Date(session.createdAt).toLocaleDateString()}</Text>
-                                </HStack>
-                                <HStack gap={1}>
-                                  <FiMessageSquare size={12} />
-                                  <Text>{session.messageCount || 0}</Text>
-                                </HStack>
-                              </HStack>
-                            </VStack>
-                          </HStack>
-                          <HStack gap={1}>
-                            <IconButton
-                              icon={<FiArrowRight />}
+                  <Flex direction="column" gap={4} h="full">
+                    <Flex align="start" justify="space-between">
+                      <VStack align="start" gap={2} flex={1}>
+                        {editingSession === session.id ? (
+                          <HStack gap={2} w="full" onClick={(e) => e.stopPropagation()}>
+                            <Input
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveSessionName(session.id, e);
+                                if (e.key === "Escape") cancelEditing(e);
+                              }}
                               size="sm"
+                              bg="white"
+                              border="1px solid"
+                              borderColor="black"
+                              color="black"
+                              _focus={{ boxShadow: "none" }}
+                              autoFocus
+                            />
+                            <IconButton
+                              size="xs"
+                              variant="ghost"
+                              color="green.500"
+                              _hover={{ bg: "green.50" }}
+                              aria-label="Save"
+                              onClick={(e) => saveSessionName(session.id, e)}
+                            >
+                              <FiCheck />
+                            </IconButton>
+                            <IconButton
+                              size="xs"
                               variant="ghost"
                               color="gray.400"
-                              _hover={{ color: "teal.400", bg: "whiteAlpha.100" }}
-                              aria-label="Open"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openSession(session.id);
-                              }}
-                            />
-                            <IconButton
-                              icon={<FiTrash2 />}
-                              size="sm"
-                              variant="ghost"
-                              color="gray.500"
-                              _hover={{ color: "red.400", bg: "whiteAlpha.100" }}
-                              aria-label="Delete"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                confirmDelete(session.id, session.name);
-                              }}
-                            />
+                              _hover={{ bg: "gray.100" }}
+                              aria-label="Cancel"
+                              onClick={cancelEditing}
+                            >
+                              <FiX />
+                            </IconButton>
                           </HStack>
-                        </Flex>
-
-                        {session.uploadedFiles && session.uploadedFiles.length > 0 && (
-                          <Box
-                            p={3}
-                            bg="whiteAlpha.50"
-                            borderRadius="lg"
-                          >
-                            <VStack align="start" gap={2}>
-                              {session.uploadedFiles.slice(0, 2).map((file, idx) => (
-                                <HStack key={idx} gap={2} fontSize="xs" color="gray.400">
-                                  <FiFile size={12} />
-                                  <Text noOfLines={1}>{file.name}</Text>
+                        ) : (
+                          <>
+                            <Text fontWeight="500" color="black" fontSize="md" noOfLines={2}>
+                              {session.name}
+                            </Text>
+                            <HStack gap={3} fontSize="xs" color="gray.500">
+                              <HStack gap={1}>
+                                <FiClock size={12} />
+                                <Text>{formatDate(session.createdAt || session.id)}</Text>
+                              </HStack>
+                              {session.messageCount > 0 && (
+                                <HStack gap={1}>
+                                  <FiMessageSquare size={12} />
+                                  <Text>{session.messageCount}</Text>
                                 </HStack>
-                              ))}
-                              {session.uploadedFiles.length > 2 && (
-                                <Text fontSize="xs" color="teal.400" fontWeight="500">
-                                  +{session.uploadedFiles.length - 2} more
-                                </Text>
                               )}
-                            </VStack>
-                          </Box>
+                            </HStack>
+                          </>
                         )}
-                      </Flex>
-                    </Box>
-                  ))}
-                </SimpleGrid>
-              )}
-            </VStack>
-          </Container>
+                      </VStack>
+                      {editingSession !== session.id && (
+                        <VStack gap={1}>
+                          <IconButton
+                            size="xs"
+                            variant="ghost"
+                            color="gray.400"
+                            _hover={{ color: "black", bg: "gray.100" }}
+                            aria-label="Edit"
+                            onClick={(e) => startEditing(session, e)}
+                          >
+                            <FiEdit2 />
+                          </IconButton>
+                          <IconButton
+                            size="xs"
+                            variant="ghost"
+                            color="gray.400"
+                            _hover={{ color: "black", bg: "gray.100" }}
+                            aria-label="Open"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSession(session.id);
+                            }}
+                          >
+                            <FiArrowRight />
+                          </IconButton>
+                          <IconButton
+                            size="xs"
+                            variant="ghost"
+                            color="gray.400"
+                            _hover={{ color: "red.500", bg: "red.50" }}
+                            aria-label="Delete"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              confirmDelete(session.id, session.name);
+                            }}
+                          >
+                            <FiTrash2 />
+                          </IconButton>
+                        </VStack>
+                      )}
+                    </Flex>
+
+                    {session.uploadedFiles && session.uploadedFiles.length > 0 && (
+                      <Box
+                        mt="auto"
+                        p={2}
+                        bg="gray.50"
+                        borderRadius="md"
+                      >
+                        <HStack gap={1} fontSize="xs" color="gray.600">
+                          <FiFile size={12} />
+                          <Text fontWeight="500">
+                            {session.uploadedFiles.length} {session.uploadedFiles.length === 1 ? 'source' : 'sources'}
+                          </Text>
+                        </HStack>
+                      </Box>
+                    )}
+                  </Flex>
+                </Box>
+              ))}
+            </Grid>
+          </VStack>
         </Box>
       </Box>
 
@@ -465,21 +540,21 @@ export default function Sessions() {
           if (!e.open) setSessionToDelete(null);
         }}
       >
-        <DialogContent bg="gray.900" borderColor="whiteAlpha.200">
+        <DialogContent bg="white" border="1px solid" borderColor="gray.200">
           <DialogHeader>
-            <DialogTitle color="white">Delete Session</DialogTitle>
+            <DialogTitle color="black" fontWeight="600">Delete Notebook</DialogTitle>
           </DialogHeader>
           <DialogBody>
             <VStack gap={3} align="start">
-              <HStack gap={2} color="orange.400">
+              <HStack gap={2} color="gray.600">
                 <FiAlertCircle size={20} />
-                <Text fontWeight="600">Are you sure?</Text>
+                <Text fontWeight="500">Are you sure?</Text>
               </HStack>
-              <Text color="gray.300">
+              <Text color="gray.600">
                 You're about to delete <strong>"{sessionToDelete?.name}"</strong>.
                 This will permanently remove all messages and files.
               </Text>
-              <Text fontSize="sm" color="gray.500">
+              <Text fontSize="sm" color="gray.400">
                 This action cannot be undone.
               </Text>
             </VStack>
@@ -488,18 +563,18 @@ export default function Sessions() {
             <DialogActionTrigger asChild>
               <Button
                 variant="outline"
-                borderColor="whiteAlpha.200"
-                color="gray.300"
-                _hover={{ bg: "whiteAlpha.100" }}
+                borderColor="gray.300"
+                color="black"
+                _hover={{ bg: "gray.50" }}
                 onClick={() => setSessionToDelete(null)}
               >
                 Cancel
               </Button>
             </DialogActionTrigger>
             <Button
-              bg="red.600"
+              bg="black"
               color="white"
-              _hover={{ bg: "red.500" }}
+              _hover={{ bg: "gray.800" }}
               onClick={deleteSession}
             >
               Delete

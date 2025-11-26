@@ -6,6 +6,11 @@ import { performOCR } from "../../lib/ocrProcessor";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/nextjs/server";
 import { supabase } from "../../lib/supabase";
+import { exec } from "child_process";
+import { promisify } from "util";
+import { cleanPDFText } from "../../lib/intelligentTextCleaner";
+
+const execPromise = promisify(exec);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -19,49 +24,255 @@ export const config = {
   },
 };
 
+// Universal text cleaning function - fixes all spacing and formatting issues
+function cleanTextUniversal(text) {
+  if (!text) return '';
+
+  // First apply intelligent cleaning for PDF-specific issues
+  text = cleanPDFText(text);
+
+  let cleaned = text
+    // Remove line breaks and tabs initially
+    .replace(/[\r\n\t]+/g, ' ')
+    // Replace non-breaking spaces with regular spaces
+    .replace(/\u00A0/g, ' ')
+
+    // Fix excessive character spacing (e.g., "D e v e l o p m e n t" -> "Development")
+    .replace(/\b([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])(\s+[a-zA-Z])*\b/g, (match) => {
+      return match.replace(/\s+/g, '');
+    })
+
+    // Fix spaces within words (e.g., "Envir onment" -> "Environment")
+    .replace(/\b([A-Z][a-z]{1,4})\s+([a-z]{2,})\b/g, '$1$2')
+    // Fix single capital + space + lowercase (e.g., "Y ou" -> "You")
+    .replace(/\b([A-Z])\s+([a-z]{2,})\b/g, '$1$2')
+    // Fix word fragment + space + continuation (e.g., "applicatio n" -> "application")
+    .replace(/([a-z]{5,})\s+([a-z]{1,3})\b/g, '$1$2')
+    // Fix lowercase + space + lowercase within words (e.g., "natu re" -> "nature")
+    .replace(/([a-z]{2,})\s+([a-z]{2})\b/g, (match, p1, p2) => {
+      if (p2.length <= 2 && (p2.match(/^(re|ly|ed|er|al|le|ty|ry|ng|nt|nd|st)$/))) {
+        return p1 + p2;
+      }
+      return match;
+    })
+
+    // Fix words stuck together (academic papers)
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([)])([A-Z])/g, '$1 $2')
+
+    // Fix common stuck words (e.g., "ideaof" -> "idea of", "depthfora" -> "depth for a")
+    .replace(/([a-z]{3,})(of|in|on|at|to|is|or|and|for|the|you|your|with|from|that|this|will|can|are|was|but|not|has|have|been)([a-z]{2,})/gi, '$1 $2 $3')
+    .replace(/([a-z]{3,})(of|in|on|at|to|is|or|and|for|the|you|your|with|from|that|this|will|can|are|was|but|not|has|have|been)\b/gi, '$1 $2')
+    .replace(/\b(of|in|on|at|to|is|or|and|for|the|you|your|with|from|that|this|will|can|are|was|but|not|has|have|been)([a-z]{3,})/gi, '$1 $2')
+
+    // Fix academic citation formats
+    .replace(/(\d{4})\)([A-Za-z])/g, '$1) $2')
+    .replace(/et\s*al\.\s*,/g, 'et al.,')
+
+    // Normalize multiple spaces to single space
+    .replace(/\s+/g, ' ')
+
+    // Fix punctuation spacing
+    .replace(/\s+([.,;:!?)\]}])/g, '$1')  // Remove spaces before punctuation
+    .replace(/([({\[])\s+/g, '$1')  // Remove spaces after opening punctuation
+    .replace(/([.,;:!?])([A-Za-z])/g, '$1 $2')  // Ensure space after punctuation
+    .replace(/([)\]}])([A-Za-z])/g, '$1 $2')  // Space after closing punctuation
+
+    // Fix multiple consecutive punctuation
+    .replace(/\.{2,}/g, '.')
+    .replace(/\?{2,}/g, '?')
+    .replace(/!{2,}/g, '!')
+
+    // Fix spacing around hyphens
+    .replace(/\s+-\s+/g, '-')
+
+    // Fix spacing around quotes
+    .replace(/\s+"/g, ' "')
+    .replace(/"\s+/g, '" ')
+    .replace(/\s+'/g, " '")
+    .replace(/'\s+/g, "' ")
+
+    // Fix common contractions
+    .replace(/won\s+'\s*t\b/gi, "won't")
+    .replace(/can\s+'\s*t\b/gi, "can't")
+    .replace(/don\s+'\s*t\b/gi, "don't")
+    .replace(/doesn\s+'\s*t\b/gi, "doesn't")
+    .replace(/isn\s+'\s*t\b/gi, "isn't")
+    .replace(/aren\s+'\s*t\b/gi, "aren't")
+    .replace(/wasn\s+'\s*t\b/gi, "wasn't")
+    .replace(/weren\s+'\s*t\b/gi, "weren't")
+    .replace(/hasn\s+'\s*t\b/gi, "hasn't")
+    .replace(/haven\s+'\s*t\b/gi, "haven't")
+    .replace(/hadn\s+'\s*t\b/gi, "hadn't")
+    .replace(/wouldn\s+'\s*t\b/gi, "wouldn't")
+    .replace(/couldn\s+'\s*t\b/gi, "couldn't")
+    .replace(/shouldn\s+'\s*t\b/gi, "shouldn't")
+
+    // Final cleanup
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned;
+}
+
 async function processTextContent(text, fileName, fileType = "text", pageNumber = null, boundingBoxes = null) {
   const chunks = [];
 
-  // Advanced text cleaning for better PDF extraction
-  let cleanedText = text
-    // Fix words stuck together (academic papers often have this issue)
-    .replace(/([a-z])([A-Z])/g, '$1 $2')  // camelCase separation
-    .replace(/([a-z])([A-Z][a-z])/g, '$1 $2')  // sentenceCase fix
-    .replace(/([a-z]{3,})([A-Z])/g, '$1 $2')  // word followed by capital
-    .replace(/([)])([A-Z])/g, '$1 $2')  // closing bracket then capital
-    .replace(/([.!?,;:])([A-Za-z])/g, '$1 $2')  // punctuation then letter
-    .replace(/([a-z])(\()/g, '$1 $2')  // letter then opening bracket
-
-    // Fix academic citation formats
-    .replace(/\)([A-Z])/g, ') $1')  // closing paren then capital
-    .replace(/(\d{4})\)([A-Za-z])/g, '$1) $2')  // year citation then text
-    .replace(/et\s*al\.\s*,/g, 'et al.,')  // fix "et al." spacing
-    .replace(/\(\s+/g, '(')  // remove space after opening paren
-    .replace(/\s+\)/g, ')')  // remove space before closing paren
-
-    // Fix common word combinations that get stuck
-    .replace(/([a-z])(by|in|of|to|and|or|for|with|from|into|over|under)([A-Z])/g, '$1 $2 $3')
-
-    // Handle hyphenated words across lines
-    .replace(/(\w)-\s*\n\s*(\w)/g, '$1$2')  // Join hyphenated words
-
-    // Fix spacing around numbers
-    .replace(/([a-zA-Z])(\d)/g, '$1 $2')  // letter then number
-    .replace(/(\d)([a-zA-Z])/g, '$1 $2')  // number then letter
-    .replace(/(\d),(\d)/g, '$1, $2')  // add space after comma in numbers
-
-    // Normalize whitespace
-    .replace(/\s+/g, ' ')  // Multiple spaces to single
-    .replace(/\n\s*\n\s*\n+/g, '\n\n')  // Multiple line breaks to double
-    .replace(/[\r\n]+/g, '\n')  // Normalize line endings
-
-    // Final cleanup
-    .replace(/\s+([.!?,;:])/g, '$1')  // Remove space before punctuation
-    .replace(/\s+$/gm, '')  // Remove trailing spaces
-    .trim();
+  // Apply universal text cleaning first
+  let cleanedText = cleanTextUniversal(text);
 
   if (!cleanedText || cleanedText.length < 10) {
     return chunks;
+  }
+
+  // Skip AI cleaning for pdfplumber (fast uploads)
+  // pdfplumber extracts text cleanly for most PDFs
+  const skipAICleaning = fileType === "pdf-plumber";
+
+  // Only run GPT cleaning if not from pdfplumber
+  if (!skipAICleaning) {
+    console.log(`🔧 Applying two-pass GPT-4o cleaning to ${fileName}...`);
+
+    // ALWAYS use GPT-4o to clean text, handling long pages by chunking first
+    // Split into GPT-friendly chunks (500-3500 chars) for cleaning
+    const gptChunks = [];
+    const GPT_CHUNK_SIZE = 3000;
+    const GPT_OVERLAP = 100;
+
+    if (cleanedText.length <= GPT_CHUNK_SIZE) {
+      // Short enough to process in one go
+      gptChunks.push(cleanedText);
+    } else {
+      // Split into overlapping chunks for GPT processing
+      let pos = 0;
+      while (pos < cleanedText.length) {
+        const chunk = cleanedText.substring(pos, pos + GPT_CHUNK_SIZE);
+        gptChunks.push(chunk);
+        pos += GPT_CHUNK_SIZE - GPT_OVERLAP;
+      }
+    }
+
+    // Clean each GPT chunk with TWO-PASS approach for maximum quality
+    const cleanedGptChunks = [];
+    for (let i = 0; i < gptChunks.length; i++) {
+    const gptChunk = gptChunks[i];
+
+    if (gptChunk.length >= 50) {
+      try {
+        // PASS 1: Use GPT-4o for text structure and spacing analysis
+        console.log(`🧠 Pass 1/2: Using GPT-4o for spacing analysis on chunk ${i+1}/${gptChunks.length} from ${fileName} page ${pageNumber || '?'} (${gptChunk.length} chars)`);
+
+        const pass1Response = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{
+            role: 'user',
+            content: `You are a text cleaning expert. Fix all spacing, formatting, and word-splitting issues in this PDF-extracted text. Make it fluent, natural English.
+
+CRITICAL RULES:
+1. Fix words stuck together (e.g., "Theproposed" → "The proposed")
+2. Fix excessive spacing in words (e.g., "Environ ment al" → "Environmental")
+3. Remove hyphenation from line breaks (e.g., "ex- tracted" → "extracted")
+4. Fix common stuck prepositions (e.g., "ideaof" → "idea of", "depthfor" → "depth for")
+5. Preserve technical terms, citations, and formatting
+6. Return ONLY the corrected text, no explanations
+
+Examples:
+
+Input: "Theproposedmodel allowsaccurate answers tobe ex- tractedbyadd in ga contrastive loss term"
+Output: "The proposed model allows accurate answers to be extracted by adding a contrastive loss term"
+
+Input: "Is the ideaofsufﬁcient depthfora course project? Whileyour idea or ﬁxdoes not have to work wonderfully"
+Output: "Is the idea of sufficient depth for a course project? While your idea or fix does not have to work wonderfully"
+
+Input: "analysisofthe base system mayoccur when usingthe existing QA model"
+Output: "analysis of the base system may occur when using the existing QA model"
+
+Input: "Environ ment al studies have shown sig nifi cant results in re cent years"
+Output: "Environmental studies have shown significant results in recent years"
+
+Input: "Thetransform erarchitecture introducedbyVaswanietal.2017revolutionized NLP"
+Output: "The transformer architecture introduced by Vaswani et al. 2017 revolutionized NLP"
+
+Input: "ma chine learn ing mod els can be train ed using super vis ed learn ing"
+Output: "machine learning models can be trained using supervised learning"
+
+Input: "Wepresenta novel approach that lever ages self-atten tion mecha nisms"
+Output: "We present a novel approach that leverages self-attention mechanisms"
+
+Input: "theexperimentalresults demon strate sig nificantim prove ments over base line methods"
+Output: "the experimental results demonstrate significant improvements over baseline methods"
+
+Now fix this text:
+
+${gptChunk}`
+          }],
+        });
+
+        const pass1Cleaned = pass1Response.choices[0].message.content.trim();
+        console.log(`   ✅ Pass 1 complete (o1-mini reasoning)`);
+
+        // PASS 2: Use GPT-4o for final grammar, fluency, and polish
+        console.log(`   🎨 Pass 2/2: Using GPT-4o for fluency refinement...`);
+
+        const pass2Response = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{
+            role: 'system',
+            content: `You are refining already-cleaned text to ensure perfect grammar and fluency. Fix any remaining issues:
+
+1. Ensure perfect sentence structure
+2. Fix any remaining spacing or punctuation issues
+3. Ensure natural, academic English
+4. Preserve all technical terms and citations exactly
+5. Return ONLY the refined text, no explanations
+
+Examples of refinements:
+
+Input: "the results show that model performs well"
+Output: "The results show that the model performs well"
+
+Input: "We used approach described in Smith et al.2020"
+Output: "We used the approach described in Smith et al. 2020"
+
+Input: "machine learning models.can achieve high accuracy"
+Output: "Machine learning models can achieve high accuracy"`
+          }, {
+            role: 'user',
+            content: pass1Cleaned
+          }],
+          temperature: 0.1,
+          max_tokens: 4000,
+        });
+
+        const finalCleaned = pass2Response.choices[0].message.content.trim();
+        cleanedGptChunks.push(finalCleaned);
+        console.log(`   ✅✅ Both passes complete for chunk ${i+1}/${gptChunks.length}`);
+
+      } catch (error) {
+        console.error(`   ⚠️ AI cleaning failed for chunk ${i+1}, using regex-cleaned text:`, error.message);
+        cleanedGptChunks.push(gptChunk);
+      }
+    } else {
+      cleanedGptChunks.push(gptChunk);
+    }
+    }
+
+    // Reassemble the cleaned text
+    if (gptChunks.length > 1) {
+      // Remove overlap regions to avoid duplication
+      cleanedText = cleanedGptChunks[0];
+      for (let i = 1; i < cleanedGptChunks.length; i++) {
+        // Skip first GPT_OVERLAP chars of subsequent chunks (they overlap with previous)
+        const chunk = cleanedGptChunks[i];
+        cleanedText += ' ' + chunk.substring(Math.min(GPT_OVERLAP, chunk.length));
+      }
+    } else {
+      cleanedText = cleanedGptChunks[0] || cleanedText;
+    }
+
+    console.log(`✅ Two-pass GPT-4o cleaning complete`);
+  } else {
+    console.log(`✨ Using Google Document AI text (no additional cleaning needed)`);
   }
 
   // Reliable chunking: small chunks with high overlap for precise citations
@@ -121,15 +332,143 @@ async function processTextContent(text, fileName, fileType = "text", pageNumber 
 }
 
 async function processPDF(filePath, fileName) {
-  // Use pdf2json for reliable text extraction
   console.log(`Processing PDF: ${fileName}`);
 
-  // Use pdf2json for text extraction (Vision processing disabled - requires GraphicsMagick)
   const methods = [];
 
-  // Method 1: Try pdf2json
+  // Method 1: Try pdfplumber (high-quality extraction, no page limits)
   methods.push(async () => {
     try {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📘 ATTEMPTING PDFPLUMBER EXTRACTION');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      // Path to Python script - use parallel version for better performance
+      const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber_parallel.py');
+      const pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+
+      // Execute Python script with increased buffer for large PDFs
+      const { stdout, stderr } = await execPromise(
+        `"${pythonPath}" "${scriptPath}" "${filePath}"`,
+        { maxBuffer: 1024 * 1024 * 200 } // 200MB buffer for very large PDFs
+      );
+
+      if (stderr && !stderr.includes('Processed')) {
+        console.log('⚠️ pdfplumber warnings:', stderr);
+      }
+
+      // Parse result
+      const result = JSON.parse(stdout);
+
+      if (!result.success) {
+        throw new Error(result.error || 'pdfplumber extraction failed');
+      }
+
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('✅ SUCCESS! PDFPLUMBER EXTRACTION COMPLETE');
+      console.log(`📊 Extracted: ${result.total_chars} characters`);
+      console.log(`📄 Pages: ${result.total_pages}`);
+      console.log('🎯 Text quality: HIGH (with table support)');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      // Process pages
+      const chunks = [];
+      for (const pageData of result.pages) {
+        if (pageData.text.trim().length > 50) {
+          const pageChunks = await processTextContent(
+            pageData.text,
+            fileName,
+            "pdf-plumber",
+            pageData.page
+          );
+          chunks.push(...pageChunks);
+        }
+      }
+
+      if (chunks.length === 0) {
+        throw new Error('No text content extracted');
+      }
+
+      return chunks;
+
+    } catch (error) {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('❌ PDFPLUMBER FAILED');
+      console.log(`Error: ${error.message}`);
+      console.log('⚠️  Trying PyMuPDF extraction');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      throw error;
+    }
+  });
+
+  // Method 2: Try PyMuPDF extraction (often cleaner than pdfplumber)
+  methods.push(async () => {
+    try {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('🔷 ATTEMPTING PYMUPDF EXTRACTION');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_pymupdf.py');
+      const pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+
+      // Execute Python script with increased buffer
+      const { stdout, stderr } = await execPromise(
+        `"${pythonPath}" "${scriptPath}" "${filePath}"`,
+        { maxBuffer: 1024 * 1024 * 200 } // 200MB buffer
+      );
+
+      if (stderr && !stderr.includes('Processed')) {
+        console.log('⚠️ PyMuPDF warnings:', stderr);
+      }
+
+      // Parse result
+      const result = JSON.parse(stdout);
+
+      if (!result.success) {
+        throw new Error(result.error || 'PyMuPDF extraction failed');
+      }
+
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('✅ SUCCESS! PYMUPDF EXTRACTION COMPLETE');
+      console.log(`📊 Extracted: ${result.total_chars} characters`);
+      console.log(`📄 Pages: ${result.total_pages}`);
+      console.log('🎯 Text quality: ENHANCED (with advanced cleaning)');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      // Process pages
+      const chunks = [];
+      for (const pageData of result.pages) {
+        if (pageData.text.trim().length > 50) {
+          const pageChunks = await processTextContent(
+            pageData.text,
+            fileName,
+            "pymupdf",
+            pageData.page
+          );
+          chunks.push(...pageChunks);
+        }
+      }
+
+      if (chunks.length === 0) {
+        throw new Error('No text content extracted');
+      }
+
+      return chunks;
+
+    } catch (error) {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('❌ PYMUPDF FAILED');
+      console.log(`Error: ${error.message}`);
+      console.log('⚠️  Falling back to pdf2json');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      throw error;
+    }
+  });
+
+  // Method 3: Try pdf2json
+  methods.push(async () => {
+    try {
+      console.log('📚 Using pdf2json (fallback method)...');
       const PDFParser = (await import("pdf2json")).default;
       const pdfParser = new PDFParser();
 
@@ -479,7 +818,6 @@ export default async function handler(req, res) {
       allowEmptyFiles: false,
       minFileSize: 1, // Must have content
       hashAlgorithm: false, // Skip hashing to speed up large file uploads
-      enabledPlugins: ['octetstream', 'multipart', 'json'],
     });
 
     const [fields, files] = await new Promise((resolve, reject) => {

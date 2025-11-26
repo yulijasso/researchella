@@ -19,8 +19,11 @@ import {
   Stack,
   Spinner,
   Popover,
+  Input,
+  InputGroup,
 } from "@chakra-ui/react";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2 } from "react-icons/fi";
+import Image from "next/image";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText } from "react-icons/fi";
 import { useColorMode } from "@/components/ui/color-mode";
 import { toaster } from "@/components/ui/toaster";
 import { useAuth } from "@/contexts/AuthContext";
@@ -37,6 +40,7 @@ export default function Chat() {
   const [sessionName, setSessionName] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { colorMode, toggleColorMode } = useColorMode();
+  const [customTheme, setCustomTheme] = useState("light"); // "light", "dark", or "retro"
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -67,6 +71,51 @@ export default function Chat() {
   const [currentPdfPage, setCurrentPdfPage] = useState(1);
   const [currentHighlightText, setCurrentHighlightText] = useState("");
   const [tutoringMode, setTutoringMode] = useState("direct"); // "direct" or "interactive"
+  const [showUploadInterface, setShowUploadInterface] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [podcastAudio, setPodcastAudio] = useState(null);
+  const [podcastScript, setPodcastScript] = useState(null);
+  const [isGeneratingPodcast, setIsGeneratingPodcast] = useState(false);
+  const [showPodcastPlayer, setShowPodcastPlayer] = useState(false);
+  const [savedMaterials, setSavedMaterials] = useState([]); // Array of all generated materials
+  const [webSearchQuery, setWebSearchQuery] = useState(""); // Web search query
+  const [webSearchResults, setWebSearchResults] = useState([]); // Web search results
+  const [isSearchingWeb, setIsSearchingWeb] = useState(false); // Loading state for web search
+  const [isDragging, setIsDragging] = useState(false); // Drag-and-drop state
+
+  // Autocomplete for @mentions
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteOptions, setAutocompleteOptions] = useState([]);
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
+  const [mentionStartPos, setMentionStartPos] = useState(0);
+
+  // Fix hydration error for color mode
+  useEffect(() => {
+    setMounted(true);
+    // Load custom theme from localStorage
+    const savedTheme = localStorage.getItem('customTheme');
+    if (savedTheme && ['light', 'dark', 'retro'].includes(savedTheme)) {
+      setCustomTheme(savedTheme);
+    }
+  }, []);
+
+  // Cycle through themes: light → dark → retro → light
+  const cycleTheme = () => {
+    const themeOrder = ['light', 'dark', 'retro'];
+    const currentIndex = themeOrder.indexOf(customTheme);
+    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length];
+    setCustomTheme(nextTheme);
+    localStorage.setItem('customTheme', nextTheme);
+
+    // Also update Chakra's color mode for light/dark
+    if (nextTheme === 'light' && colorMode === 'dark') {
+      toggleColorMode();
+    } else if (nextTheme === 'dark' && colorMode === 'light') {
+      toggleColorMode();
+    } else if (nextTheme === 'retro' && colorMode === 'dark') {
+      toggleColorMode(); // Set to light mode for retro
+    }
+  };
 
   // Load session data from Supabase
   useEffect(() => {
@@ -115,6 +164,7 @@ export default function Chat() {
             const { files } = await filesResponse.json();
             // Map database fields to frontend format
             const mappedFiles = (files || []).map(f => ({
+              id: f.id,  // Include ID for deletion
               name: f.name,
               chunks: f.chunks,
               type: f.type,
@@ -194,7 +244,7 @@ export default function Chat() {
         ...messages,
         {
           role: "system",
-          content: `🔗 Successfully scraped "${data.title}" from ${url} (${data.chunksAdded} chunks added to knowledge base)`,
+          content: `Successfully scraped "${data.title}" from ${url} (${data.chunksAdded} chunks added to knowledge base)`,
         },
       ]);
 
@@ -205,6 +255,9 @@ export default function Chat() {
         status: "success",
         duration: 5000,
       });
+
+      // Close upload interface if it was open
+      setShowUploadInterface(false);
 
       setUrlInput("");
       setShowUrlInput(false);
@@ -294,7 +347,7 @@ export default function Chat() {
         ...messages,
         {
           role: "system",
-          content: `📄 Successfully uploaded and processed "${file.name}" (${data.chunksAdded} chunks added to knowledge base)${data.method === 'GPT-4 Vision' ? ' using GPT-4 Vision' : ''}`,
+          content: `Successfully uploaded and processed "${file.name}" (${data.chunksAdded} chunks added to knowledge base)${data.method === 'GPT-4 Vision' ? ' using GPT-4 Vision' : ''}`,
         },
       ]);
 
@@ -305,6 +358,9 @@ export default function Chat() {
         status: "success",
         duration: 5000,
       });
+
+      // Close upload interface if it was open
+      setShowUploadInterface(false);
 
       // Reset file input
       event.target.value = "";
@@ -336,7 +392,10 @@ export default function Chat() {
     }
   };
 
-  const handleDeleteFile = (index) => {
+  const handleDeleteFile = async (index) => {
+    const fileToDelete = uploadedFiles[index];
+
+    // Optimistically update UI
     const updatedFiles = uploadedFiles.filter((_, idx) => idx !== index);
     setUploadedFiles(updatedFiles);
 
@@ -345,16 +404,194 @@ export default function Chat() {
       ...messages,
       {
         role: "system",
-        content: `🗑️ Removed "${uploadedFiles[index].name}" from sources`,
+        content: `🗑️ Removed "${fileToDelete.name}" from sources`,
       },
     ]);
 
     toaster.create({
       title: "Source Removed",
-      description: `"${uploadedFiles[index].name}" has been removed from sources`,
-      status: "info",
+      description: `"${fileToDelete.name}" has been removed from sources`,
+      type: "info",
       duration: 3000,
     });
+
+    // Delete from backend if file has an ID (from database)
+    if (fileToDelete.id) {
+      try {
+        const response = await fetch('/api/files', {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ id: fileToDelete.id }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete file from database');
+        }
+
+        // Delete vectors from Pinecone
+        const deleteVectorsResponse = await fetch(`/api/delete-file-vectors`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionId: sessionId,
+            fileName: fileToDelete.name
+          }),
+        });
+
+        if (deleteVectorsResponse.ok) {
+          console.log(`✅ Deleted vectors for ${fileToDelete.name}`);
+        }
+      } catch (error) {
+        console.error('Error deleting file:', error);
+        toaster.create({
+          title: "Warning",
+          description: "File removed from UI but may still exist in database",
+          type: "warning",
+          duration: 3000,
+        });
+      }
+    }
+  };
+
+  const handleWebSearch = async (query) => {
+    if (!query.trim()) {
+      setWebSearchResults([]);
+      return;
+    }
+
+    setIsSearchingWeb(true);
+    try {
+      const response = await fetch('/api/web-search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Check if it's a configuration error
+        if (response.status === 503 && data.message) {
+          toaster.create({
+            title: "Web Search Not Configured",
+            description: data.message,
+            type: "warning",
+            duration: 5000,
+          });
+        } else {
+          throw new Error(data.error || 'Web search failed');
+        }
+        setWebSearchResults([]);
+        return;
+      }
+
+      setWebSearchResults(data.results || []);
+    } catch (error) {
+      console.error('Web search error:', error);
+      toaster.create({
+        title: "Search Failed",
+        description: "Unable to search the web. Please try again.",
+        type: "error",
+        duration: 3000,
+      });
+      setWebSearchResults([]);
+    } finally {
+      setIsSearchingWeb(false);
+    }
+  };
+
+  const handleAddWebSource = async (result) => {
+    try {
+      setIsUploading(true);
+
+      const response = await fetch('/api/add-web-source', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: result.url,
+          title: result.title,
+          snippet: result.snippet,
+          sessionId: sessionId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to add web source');
+      }
+
+      const data = await response.json();
+
+      // Add to uploaded files
+      setUploadedFiles([...uploadedFiles, {
+        name: result.title,
+        type: 'url',
+        url: result.url,
+        chunks: data.chunks,
+        id: data.fileId,
+      }]);
+
+      toaster.create({
+        title: "Source Added",
+        description: `Added "${result.title}" to your sources`,
+        type: "success",
+        duration: 3000,
+      });
+
+      // Remove from search results
+      setWebSearchResults(webSearchResults.filter(r => r.url !== result.url));
+    } catch (error) {
+      console.error('Error adding web source:', error);
+      toaster.create({
+        title: "Error",
+        description: "Failed to add web source. Please try again.",
+        type: "error",
+        duration: 3000,
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      // Process each file
+      Array.from(files).forEach((file) => {
+        const fakeEvent = {
+          target: {
+            files: [file]
+          }
+        };
+        handleFileUpload(fakeEvent);
+      });
+    }
   };
 
   const handleImageUpload = async (event) => {
@@ -481,16 +718,33 @@ export default function Chat() {
       }
 
       const data = await response.json();
+
+      // Add to saved materials array
+      const newMaterial = {
+        id: Date.now(),
+        type: type,
+        data: data,
+        timestamp: new Date(),
+        count: type === 'flashcards' ? data.flashcards?.length : (type === 'quiz' ? data.questions?.length : null),
+      };
+      setSavedMaterials([newMaterial, ...savedMaterials]); // Newest first
+
+      // Set current studio content for immediate use
       setStudioContent(data);
-      setStudioModalOpen(true);
+      setStudioType(type);
+
+      // Only auto-open modal for quiz
+      if (type === 'quiz') {
+        setStudioModalOpen(true);
+      }
       setCurrentFlashcardIndex(0);
       setShowFlashcardAnswer(false);
       setQuizAnswers({});
       setShowQuizResults(false);
 
       toaster.create({
-        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Generated`,
-        description: "Your study material is ready!",
+        title: `${type.charAt(0).toUpperCase() + type.slice(1)} Ready!`,
+        description: type === 'flashcards' ? `${data.flashcards?.length || 0} flashcards ready to study` : "Your study material is ready!",
         status: "success",
         duration: 3000,
       });
@@ -504,6 +758,69 @@ export default function Chat() {
       });
     } finally {
       setIsGeneratingStudio(false);
+    }
+  };
+
+  const generatePodcast = async () => {
+    console.log('🎙️ Podcast button clicked');
+    setIsGeneratingPodcast(true);
+
+    try {
+      console.log('📡 Calling podcast API...');
+      const response = await fetch('/api/generate-podcast', {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sessionId: sessionId,
+        }),
+      });
+
+      console.log('📡 Response status:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ API Error:', errorData);
+        throw new Error(errorData.error || 'Failed to generate podcast');
+      }
+
+      const data = await response.json();
+      console.log('✅ Podcast data received:', {
+        hasAudio: !!data.audioUrl,
+        hasScript: !!data.script,
+        fileCount: data.fileCount
+      });
+
+      // Add to saved materials array
+      const newMaterial = {
+        id: Date.now(),
+        type: 'podcast',
+        audioUrl: data.audioUrl,
+        script: data.script,
+        fileCount: data.fileCount,
+        timestamp: new Date(),
+      };
+      setSavedMaterials([newMaterial, ...savedMaterials]); // Newest first
+      console.log('✅ Podcast saved to materials');
+
+      toaster.create({
+        title: "Podcast Ready!",
+        description: `Your ${data.fileCount}-source study podcast is ready to play`,
+        type: "success",
+        duration: 3000,
+      });
+    } catch (error) {
+      console.error('❌ Podcast generation error:', error);
+      toaster.create({
+        title: "Generation Failed",
+        description: error.message || "Could not generate podcast",
+        type: "error",
+        duration: 5000,
+      });
+    } finally {
+      setIsGeneratingPodcast(false);
+      console.log('🏁 Podcast generation finished');
     }
   };
 
@@ -622,13 +939,31 @@ export default function Chat() {
   const HoverCitation = ({ citationNum, citation, messages }) => {
     const [isOpen, setIsOpen] = useState(false);
 
-    // Fix run-together words for better readability
+    // Fix run-together words and PDF extraction artifacts for better readability
     const fixRunTogetherWords = (text) => {
       return text
+        // FIRST: Fix spaces within words (e.g., "Envir onment" -> "Environment", "Y ou've" -> "You've")
+        // Pattern: Capital letter + lowercase letters + space + lowercase letters (likely broken word)
+        .replace(/\b([A-Z][a-z]{1,4})\s+([a-z]{2,})\b/g, '$1$2')
+
+        // Fix single capital letter + space + lowercase word (e.g., "Y ou" -> "You")
+        .replace(/\b([A-Z])\s+([a-z]{2,})\b/g, '$1$2')
+
+        // Fix lowercase word fragment + space + lowercase continuation (e.g., "applicatio n" -> "application")
+        .replace(/([a-z]{5,})\s+([a-z]{1,3})\b/g, '$1$2')
+
+        // Fix excessive character spacing (e.g., "D e v e l o p m e n t" -> "Development")
+        .replace(/\b([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s*/g, (match) => {
+          return match.replace(/\s+/g, '');
+        })
+        .replace(/([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])\s+([a-zA-Z])(?=\s+[a-zA-Z]\s)/g, (match) => {
+          return match.replace(/\s+/g, '');
+        })
+
         // Add space between lowercase and uppercase letters (camelCase)
         .replace(/([a-z])([A-Z])/g, '$1 $2')
 
-        // Fix PDF extraction artifacts (specific patterns we see in the data)
+        // Fix common PDF extraction artifacts
         .replace(/Isthe/g, 'Is the')
         .replace(/isthe/g, 'is the')
         .replace(/theimplementation/gi, 'the implementation')
@@ -644,8 +979,22 @@ export default function Chat() {
         .replace(/hypo thes is/g, 'hypothesis')
         .replace(/descri be/g, 'describe')
 
+        // Fix broken words with spaces in the middle
+        .replace(/\b([a-z])\s+([a-z]{2,})\b/g, (match, p1, p2) => {
+          // Only join if it looks like a broken word (e.g., "v ariables" -> "variables")
+          if (p1.length === 1 && p2.length > 2) {
+            return p1 + p2;
+          }
+          return match;
+        })
+
         // Normalize multiple spaces
         .replace(/\s+/g, ' ')
+
+        // Fix spacing around punctuation
+        .replace(/\s+([.,!?;:])/g, '$1')
+        .replace(/([.,!?;:])\s+/g, '$1 ')
+
         .trim();
     };
 
@@ -657,13 +1006,47 @@ export default function Chat() {
       if (citation?.quote) {
         text = citation.quote;
       } else if (citation?.content) {
-        // Otherwise show chunk preview
-        const cleaned = citation.content
-          .replace(/\s+/g, ' ')
-          .trim();
+        // Normalize whitespace
+        const cleaned = citation.content.replace(/\s+/g, ' ').trim();
 
-        const sentences = cleaned.match(/[^.!?]+[.!?]+/g) || [cleaned];
-        text = sentences.slice(0, 2).join(' ').substring(0, 200);
+        // Try to extract complete sentences
+        const sentences = cleaned.match(/[^.!?]+[.!?]+/g);
+
+        if (sentences && sentences.length > 0) {
+          // Get first 1-2 sentences that fit within ~300 chars
+          let result = '';
+          for (let i = 0; i < Math.min(2, sentences.length); i++) {
+            const sentence = sentences[i].trim();
+            if ((result + sentence).length <= 300) {
+              result += (result ? ' ' : '') + sentence;
+            } else if (result === '') {
+              // If first sentence is too long, truncate it smartly
+              result = sentence.substring(0, 280).trim();
+              // Find last complete word
+              const lastSpace = result.lastIndexOf(' ');
+              if (lastSpace > 200) {
+                result = result.substring(0, lastSpace) + '...';
+              } else {
+                result += '...';
+              }
+            }
+          }
+          text = result;
+        } else {
+          // No sentence breaks found, truncate smartly
+          if (cleaned.length <= 300) {
+            text = cleaned;
+          } else {
+            text = cleaned.substring(0, 280).trim();
+            // Find last complete word
+            const lastSpace = text.lastIndexOf(' ');
+            if (lastSpace > 200) {
+              text = text.substring(0, lastSpace) + '...';
+            } else {
+              text += '...';
+            }
+          }
+        }
       } else {
         return 'No content available';
       }
@@ -700,6 +1083,7 @@ export default function Chat() {
               opacity: isOpen ? '1' : '0.8',
             }}
             onMouseEnter={() => setIsOpen(true)}
+            onMouseLeave={() => setIsOpen(false)}
           >
             {citationNum}
           </span>
@@ -717,6 +1101,8 @@ export default function Chat() {
             _dark={{ borderColor: "gray.700" }}
             p={0}
             overflow="hidden"
+            onMouseEnter={() => setIsOpen(true)}
+            onMouseLeave={() => setIsOpen(false)}
           >
             <Popover.Arrow>
               <Popover.ArrowTip />
@@ -735,9 +1121,12 @@ export default function Chat() {
               >
                 <FiFile size="10px" />
                 <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
-                  {citation?.source || 'Source'}
-                  {citation?.page && ` • Page ${citation.page}`}
-                  {citation?.lineSpan && ` • ${citation.lineSpan}`}
+                  {(() => {
+                    const source = citation?.source || 'Unknown Source';
+                    const page = citation?.page ? `, Page ${citation.page}` : '';
+                    const lineSpan = citation?.lineSpan ? ` (${citation.lineSpan})` : '';
+                    return `From ${source}${page}${lineSpan}:`;
+                  })()}
                 </Text>
               </HStack>
 
@@ -757,16 +1146,39 @@ export default function Chat() {
                 {citation?.confidence !== undefined &&
                  citation.confidence >= 0.5 &&
                  citation.confidence < 1 && (
-                  <Text fontSize="9px" color="orange.500" mt={1}>
-                    ⚠️ Approximate match ({Math.round(citation.confidence * 100)}%)
+                  <Text fontSize="9px" color="gray.500" mt={1}>
+                    Approximate match ({Math.round(citation.confidence * 100)}%)
                   </Text>
                 )}
 
-                {/* Show if quote was validated */}
-                {citation?.quote && citation.confidence === 1 && (
-                  <Text fontSize="9px" color="green.500" mt={1}>
-                    ✓ Verbatim quote
-                  </Text>
+                {/* Open PDF Button */}
+                {citation?.source?.endsWith('.pdf') && citation?.page && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    mt={2}
+                    w="full"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Find the uploaded file to get PDF data
+                      const uploadedFile = uploadedFiles.find(f => f.name === citation.source);
+                      if (uploadedFile?.pdfData) {
+                        setCurrentPdfData(uploadedFile.pdfData);
+                        setCurrentPdfPage(citation.page);
+                        // Use the EXACT same text that's displayed in the citation
+                        const displayedText = getDisplayText();
+                        setCurrentHighlightText(displayedText);
+                        setPdfViewerVisible(true);
+                      }
+                    }}
+                    fontSize="xs"
+                    color="blue.600"
+                    _hover={{ bg: "blue.50" }}
+                    _dark={{ color: "blue.400", _hover: { bg: "blue.900" } }}
+                    leftIcon={<FiExternalLink size={12} />}
+                  >
+                    Open PDF
+                  </Button>
                 )}
               </Box>
             </Box>
@@ -841,20 +1253,25 @@ export default function Chat() {
       return <Text>{msg.content}</Text>;
     }
 
-    // Handle assistant messages with citations
-    if (msg.role === "assistant" && msg.citations) {
+    // Handle assistant messages with citations OR citation markers in text
+    if (msg.role === "assistant") {
       const content = msg.content;
-      const messageCitations = msg.citations; // Use citations from this message
 
-      // Parse all citation formats and replace with hover citations
-      // Matches: [CHUNK-N], [CHUNK-N:S], [CHUNK-N:"verbatim quote"]
-      const parts = [];
-      let lastIndex = 0;
-      const citationRegex = /\[CHUNK-(\d+)(?::"[^"]*"|:[\d,-]+)?\]/g;
-      let match;
-      let citationIndex = 0; // Track which citation we're on
+      // Check if content contains citation markers
+      const hasCitationMarkers = /\[CHUNK-\d+(?::"[^"]*"|:[\d,-]+)?\]/.test(content);
 
-      while ((match = citationRegex.exec(content)) !== null) {
+      if (msg.citations || hasCitationMarkers) {
+        const messageCitations = msg.citations || []; // Use citations from this message or empty array
+
+        // Parse all citation formats and replace with hover citations
+        // Matches: [CHUNK-N], [CHUNK-N:S], [CHUNK-N:"verbatim quote"]
+        const parts = [];
+        let lastIndex = 0;
+        const citationRegex = /\[CHUNK-(\d+)(?::"[^"]*"|:[\d,-]+)?\]/g;
+        let match;
+        let citationIndex = 0; // Track which citation we're on
+
+        while ((match = citationRegex.exec(content)) !== null) {
         // Add text before citation
         if (match.index > lastIndex) {
           parts.push(
@@ -976,14 +1393,90 @@ export default function Chat() {
       }
 
       return <div style={{ whiteSpace: 'pre-wrap' }}>{parts}</div>;
+      }
     }
 
     // Default text rendering
     return <Text whiteSpace="pre-wrap">{msg.content}</Text>;
   };
 
+  // Handle message input change and detect @mentions for autocomplete
+  const handleMessageChange = (e) => {
+    const newMessage = e.target.value;
+    setMessage(newMessage);
+
+    // Get cursor position
+    const cursorPos = e.target.selectionStart;
+
+    // Find the last @ before cursor
+    const textBeforeCursor = newMessage.substring(0, cursorPos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+
+    // Check if we're in an @mention context
+    if (lastAtIndex !== -1) {
+      // Get the text after @ up to cursor
+      const afterAt = textBeforeCursor.substring(lastAtIndex + 1);
+
+      // Check if there's a space or quote after @ (which would end the mention)
+      const hasSpace = afterAt.includes(' ');
+      const isInQuotes = afterAt.startsWith('"') && !afterAt.includes('"', 1);
+
+      // Only show autocomplete if we're actively typing a mention
+      if (!hasSpace || isInQuotes) {
+        const searchTerm = isInQuotes ? afterAt.substring(1) : afterAt;
+
+        // Filter uploaded files based on search term
+        const filtered = uploadedFiles.filter(file =>
+          file.name.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+
+        if (filtered.length > 0) {
+          setAutocompleteOptions(filtered);
+          setShowAutocomplete(true);
+          setAutocompleteIndex(0);
+          setMentionStartPos(lastAtIndex);
+        } else {
+          setShowAutocomplete(false);
+        }
+      } else {
+        setShowAutocomplete(false);
+      }
+    } else {
+      setShowAutocomplete(false);
+    }
+  };
+
+  // Insert selected file from autocomplete
+  const insertMention = (file) => {
+    const beforeMention = message.substring(0, mentionStartPos);
+    const afterCursor = message.substring(message.length);
+
+    // Wrap in quotes if filename has spaces
+    const hasSpaces = file.name.includes(' ');
+    const mention = hasSpaces ? `@"${file.name}"` : `@${file.name}`;
+
+    setMessage(beforeMention + mention + ' ' + afterCursor);
+    setShowAutocomplete(false);
+    setAutocompleteIndex(0);
+  };
+
   const sendMessage = async (messageText) => {
     if ((!messageText.trim() && selectedImages.length === 0) || isLoading) return;
+
+    // Parse @mentions of PDF files
+    const mentionRegex = /@"([^"]+)"|@(\S+)/g;
+    const mentions = [];
+    let match;
+    while ((match = mentionRegex.exec(messageText)) !== null) {
+      const mentionedFile = match[1] || match[2];
+      // Check if this file exists in uploaded files
+      const exists = uploadedFiles.some(f =>
+        f.name.toLowerCase().includes(mentionedFile.toLowerCase())
+      );
+      if (exists) {
+        mentions.push(mentionedFile);
+      }
+    }
 
     // Build message content with text and images
     let userMessageContent;
@@ -1048,6 +1541,7 @@ export default function Chat() {
           useRAG: uploadedFiles.length > 0, // Only use RAG if documents are uploaded
           sessionId: sessionId,  // Pass session ID to backend
           tutoringMode: tutoringMode,  // Pass tutoring mode for personalized responses
+          mentionedSources: mentions.length > 0 ? mentions : null, // Pass @mentioned PDFs
         }),
       });
 
@@ -1148,32 +1642,127 @@ export default function Chat() {
   return (
     <>
       <Head>
-        <title>Chat - PaperSage</title>
-        <meta name="description" content="Chat with PaperSage AI" />
+        <title>Chat - Researchella</title>
+        <meta name="description" content="Chat with Researchella AI" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="true" />
+        <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Kalam:wght@400;700&display=swap" rel="stylesheet" />
+        <style>{`
+          .retro-newspaper-bg {
+            background:
+              radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+              radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+              repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(139, 58, 26, 0.01) 2px,
+                rgba(139, 58, 26, 0.01) 4px
+              ),
+              repeating-linear-gradient(
+                90deg,
+                transparent,
+                transparent 2px,
+                rgba(139, 58, 26, 0.01) 2px,
+                rgba(139, 58, 26, 0.01) 4px
+              ),
+              #F5E6D3;
+            background-size:
+              20px 20px,
+              20px 20px,
+              100% 100%,
+              100% 100%,
+              100% 100%;
+            background-position:
+              0 0,
+              10px 10px,
+              0 0,
+              0 0,
+              0 0;
+          }
+
+          .retro-heading {
+            font-family: 'Righteous', cursive;
+            color: #8B3A1A;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+          }
+
+          .retro-text {
+            font-family: 'Kalam', cursive;
+            color: #8B3A1A;
+          }
+
+          .retro-card {
+            background: rgba(255, 244, 230, 0.9);
+            border: 3px solid #8B3A1A;
+            border-radius: 12px;
+          }
+
+          .retro-button {
+            border: 3px solid #8B3A1A;
+            border-radius: 50px;
+            background: #BF572A;
+            color: #FFF4E6;
+            font-family: 'Righteous', cursive;
+            box-shadow: 4px 4px 0px #8B3A1A;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+
+          .retro-button:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px #8B3A1A;
+          }
+        `}</style>
       </Head>
 
-      <Flex h="100vh" overflow="hidden" position="relative" bg="white" _dark={{ bg: "gray.900" }}>
+      <Flex
+        h="100vh"
+        overflow="hidden"
+        position="relative"
+        bg={customTheme === "retro" ? "#F5E6D3" : "gray.50"}
+        _dark={{ bg: customTheme === "retro" ? "#F5E6D3" : "gray.950" }}
+        className={customTheme === "retro" ? "retro-newspaper-bg" : ""}
+      >
         {/* LEFT PANEL: Sources Sidebar (NotebookLM style) */}
         <Box
-          w="280px"
-          bg="white"
-          _dark={{ bg: "gray.900", borderColor: "gray.800" }}
+          w="240px"
+          bg={customTheme === "retro" ? "rgba(255, 244, 230, 0.9)" : "white"}
+          _dark={{ bg: customTheme === "retro" ? "rgba(255, 244, 230, 0.9)" : "gray.900", borderColor: customTheme === "retro" ? "#8B3A1A" : "gray.800" }}
           borderRightWidth="1px"
-          borderColor="gray.100"
+          borderColor={customTheme === "retro" ? "#8B3A1A" : "gray.100"}
           display={{ base: "none", lg: "block" }}
           overflowY="auto"
+          css={{
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#CBD5E0',
+              borderRadius: '3px',
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              background: '#A0AEC0',
+            },
+          }}
         >
-          <VStack gap={4} align="stretch" p={4}>
-            <VStack align="start" gap={1}>
-              <Heading size="md" fontWeight="600">
-                {sessionName || "PaperSage"}
-              </Heading>
-              <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
-                AI Research Assistant
-              </Text>
-            </VStack>
+          <VStack gap={3} align="stretch" p={4} pt={3}>
+            <Box display="flex" justifyContent="center">
+              <Image
+                src="/logo.png"
+                alt="Researchella"
+                width={100}
+                height={32}
+                style={{ objectFit: "contain" }}
+              />
+            </Box>
 
             {/* Sources Section - NotebookLM Style */}
             <Box>
@@ -1194,20 +1783,137 @@ export default function Chat() {
                 _active={{
                   transform: "translateY(0)",
                 }}
-                onClick={() => document.getElementById("file-upload-desktop").click()}
+                onClick={() => setShowUploadInterface(true)}
               >
                 Add sources
               </Button>
 
-              {/* Hidden file input */}
-              <input
-                id="file-upload-desktop"
-                type="file"
-                accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
-                multiple
-                style={{ display: "none" }}
-                onChange={handleFileUpload}
-              />
+              {/* Web Search Input - NotebookLM Style */}
+              <Box position="relative" mb={3}>
+                <Input
+                  placeholder="Search the web for sources"
+                  value={webSearchQuery}
+                  onChange={(e) => setWebSearchQuery(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleWebSearch(webSearchQuery);
+                    }
+                  }}
+                  size="sm"
+                  borderRadius="lg"
+                  bg="gray.50"
+                  _dark={{ bg: "gray.800", borderColor: "gray.700" }}
+                  borderColor="gray.200"
+                  _hover={{ borderColor: "gray.300", _dark: { borderColor: "gray.600" } }}
+                  _focus={{ borderColor: "blue.500", boxShadow: "0 0 0 1px var(--chakra-colors-blue-500)" }}
+                  pl={9}
+                  pr={webSearchQuery ? 20 : 3}
+                  fontSize="sm"
+                />
+                <Box
+                  position="absolute"
+                  left={3}
+                  top="50%"
+                  transform="translateY(-50%)"
+                  color="gray.400"
+                  _dark={{ color: "gray.500" }}
+                  pointerEvents="none"
+                >
+                  <FiSearch size={14} />
+                </Box>
+                {webSearchQuery && (
+                  <IconButton
+                    icon={<FiX />}
+                    size="xs"
+                    variant="ghost"
+                    position="absolute"
+                    right={1}
+                    top="50%"
+                    transform="translateY(-50%)"
+                    onClick={() => {
+                      setWebSearchQuery("");
+                      setWebSearchResults([]);
+                    }}
+                    aria-label="Clear search"
+                    color="gray.400"
+                    _hover={{ color: "gray.600", bg: "gray.100", _dark: { color: "gray.300", bg: "gray.700" } }}
+                  />
+                )}
+              </Box>
+
+              {/* Web Search Results */}
+              {isSearchingWeb && (
+                <Box p={4} textAlign="center">
+                  <Spinner size="sm" color="blue.500" />
+                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} mt={2}>
+                    Searching the web...
+                  </Text>
+                </Box>
+              )}
+
+              {webSearchResults.length > 0 && (
+                <VStack gap={2} align="stretch" mb={3}>
+                  <Text fontSize="xs" fontWeight="600" color="gray.600" _dark={{ color: "gray.400" }}>
+                    SEARCH RESULTS ({webSearchResults.length})
+                  </Text>
+                  {webSearchResults.map((result, idx) => (
+                    <Box
+                      key={idx}
+                      p={3}
+                      borderRadius="lg"
+                      bg="white"
+                      _dark={{ bg: "gray.800" }}
+                      border="1px solid"
+                      borderColor="gray.200"
+                      _dark={{ borderColor: "gray.700" }}
+                      transition="all 0.2s"
+                      _hover={{ borderColor: "blue.400", shadow: "sm" }}
+                    >
+                      <VStack align="start" gap={2}>
+                        <VStack align="start" gap={0}>
+                          <Text fontSize="xs" fontWeight="600" noOfLines={2}>
+                            {result.title}
+                          </Text>
+                          <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} noOfLines={2}>
+                            {result.snippet}
+                          </Text>
+                          <Text fontSize="xs" color="blue.600" _dark={{ color: "blue.400" }} noOfLines={1}>
+                            {result.url}
+                          </Text>
+                        </VStack>
+                        <Button
+                          size="xs"
+                          colorScheme="blue"
+                          w="full"
+                          onClick={() => handleAddWebSource(result)}
+                          isLoading={isUploading}
+                          leftIcon={<FiPlus />}
+                        >
+                          Add to sources
+                        </Button>
+                      </VStack>
+                    </Box>
+                  ))}
+                </VStack>
+              )}
+
+              {webSearchResults.length === 0 && webSearchQuery && !isSearchingWeb && (
+                <Box
+                  p={3}
+                  mb={3}
+                  textAlign="center"
+                  bg="gray.50"
+                  _dark={{ bg: "gray.800" }}
+                  borderRadius="lg"
+                  border="1px solid"
+                  borderColor="gray.200"
+                  _dark={{ borderColor: "gray.700" }}
+                >
+                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                    Press Enter to search
+                  </Text>
+                </Box>
+              )}
 
               {/* Sources List */}
               {uploadedFiles.length > 0 && (
@@ -1216,24 +1922,68 @@ export default function Chat() {
                     <Text fontSize="xs" fontWeight="600" color="gray.600" _dark={{ color: "gray.400" }}>
                       SOURCES ({uploadedFiles.length})
                     </Text>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => {
-                        if (selectedSources.length === uploadedFiles.length) {
+                    <HStack gap={2}>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => {
+                          if (selectedSources.length === uploadedFiles.length) {
+                            setSelectedSources([]);
+                          } else {
+                            setSelectedSources(uploadedFiles.map((_, idx) => idx));
+                          }
+                        }}
+                        fontSize="xs"
+                        color="blue.600"
+                        _dark={{ color: "blue.400" }}
+                        fontWeight="600"
+                        _hover={{ bg: "blue.50", _dark: { bg: "blue.900" } }}
+                      >
+                        {selectedSources.length === uploadedFiles.length ? "Deselect All" : "Select All"}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={async () => {
+                          if (selectedSources.length === 0) return;
+
+                          const fileCount = selectedSources.length;
+                          const confirmDelete = window.confirm(`Delete ${fileCount} selected file(s)? This cannot be undone.`);
+                          if (!confirmDelete) return;
+
+                          // Get selected files to delete
+                          const filesToDelete = selectedSources
+                            .map(idx => uploadedFiles[idx])
+                            .filter(f => f !== undefined);
+
+                          // Delete selected files
+                          for (const file of filesToDelete) {
+                            const index = uploadedFiles.findIndex(f => f.name === file.name);
+                            if (index !== -1) {
+                              await handleDeleteFile(index);
+                            }
+                          }
+
+                          // Clear selection after deletion
                           setSelectedSources([]);
-                        } else {
-                          setSelectedSources(uploadedFiles.map((_, idx) => idx));
-                        }
-                      }}
-                      fontSize="xs"
-                      color="blue.600"
-                      _dark={{ color: "blue.400" }}
-                      fontWeight="600"
-                      _hover={{ bg: "blue.50", _dark: { bg: "blue.900" } }}
-                    >
-                      {selectedSources.length === uploadedFiles.length ? "Deselect All" : "Select All"}
-                    </Button>
+
+                          toaster.create({
+                            title: "Sources Deleted",
+                            description: `Removed ${fileCount} selected file(s)`,
+                            type: "success",
+                            duration: 3000,
+                          });
+                        }}
+                        fontSize="xs"
+                        color="blue.600"
+                        _dark={{ color: "blue.400" }}
+                        fontWeight="600"
+                        _hover={{ bg: "blue.50", _dark: { bg: "blue.900" } }}
+                        isDisabled={selectedSources.length === 0}
+                      >
+                        Delete All
+                      </Button>
+                    </HStack>
                   </HStack>
                   {uploadedFiles.map((file, idx) => (
                     <Box
@@ -1303,10 +2053,9 @@ export default function Chat() {
                           )}
                         </VStack>
                         <IconButton
-                          icon={<FiTrash2 />}
-                          size="xs"
+                          icon={<FiX />}
+                          size="sm"
                           variant="ghost"
-                          colorScheme="red"
                           aria-label="Delete file"
                           position="absolute"
                           top={2}
@@ -1315,8 +2064,11 @@ export default function Chat() {
                             e.stopPropagation();
                             handleDeleteFile(idx);
                           }}
-                          opacity={0}
-                          _groupHover={{ opacity: 1 }}
+                          color="black"
+                          _hover={{ color: "red.600", bg: "red.50" }}
+                          _dark={{ color: "gray.300", _hover: { color: "red.400", bg: "red.900" } }}
+                          zIndex={10}
+                          fontSize="16px"
                         />
                       </HStack>
                     </Box>
@@ -1357,7 +2109,15 @@ export default function Chat() {
               display={{ base: "block", md: "none" }}
             >
               <Flex justify="space-between" align="center" mb={4}>
-                <Heading size="lg">PaperSage</Heading>
+                <Box flex={1}>
+                  <Image
+                    src="/logo.png"
+                    alt="Researchella"
+                    width={120}
+                    height={40}
+                    style={{ objectFit: "contain" }}
+                  />
+                </Box>
                 <IconButton
                   icon={<FiX />}
                   variant="ghost"
@@ -1391,7 +2151,7 @@ export default function Chat() {
                   ) : (
                     <VStack gap={2} align="stretch">
                       {uploadedFiles.map((file, index) => (
-                        <HStack key={index} gap={2} p={2} borderRadius="md" bg="gray.50" _dark={{ bg: "gray.700" }}>
+                        <HStack key={index} gap={2} p={2} borderRadius="md" bg="gray.50" _dark={{ bg: "gray.700" }} position="relative" role="group">
                           <FiFile size={16} />
                           <VStack align="start" gap={0} flex={1}>
                             <Text fontSize="sm" noOfLines={1}>
@@ -1403,6 +2163,22 @@ export default function Chat() {
                               </Text>
                             )}
                           </VStack>
+                          <IconButton
+                            icon={<FiX />}
+                            size="xs"
+                            variant="ghost"
+                            aria-label="Delete file"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteFile(index);
+                            }}
+                            color="gray.500"
+                            _hover={{ color: "gray.900", bg: "gray.200" }}
+                            _dark={{ color: "gray.400", _hover: { color: "gray.100", bg: "gray.600" } }}
+                            minW="auto"
+                            h="auto"
+                            p={1}
+                          />
                         </HStack>
                       ))}
                     </VStack>
@@ -1421,9 +2197,12 @@ export default function Chat() {
             py={4}
             borderBottomWidth="1px"
             borderColor="gray.200"
-            _dark={{ borderColor: "gray.700" }}
+            _dark={{ borderColor: "gray.800" }}
+            bg="white"
+            _dark={{ bg: "gray.900" }}
             align="center"
             gap={4}
+            shadow="sm"
           >
             <IconButton
               icon={<FiArrowLeft />}
@@ -1488,29 +2267,7 @@ export default function Chat() {
                   Cancel
                 </Button>
               </HStack>
-            ) : (
-              <>
-                <Button
-                  leftIcon={<FiLink />}
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowUrlInput(true)}
-                >
-                  Add URL
-                </Button>
-                <Button
-                  leftIcon={<FiUpload />}
-                  size="sm"
-                  variant="outline"
-                  as="label"
-                  htmlFor="file-upload"
-                  isLoading={isUploading}
-                  cursor="pointer"
-                >
-                  Upload File
-                </Button>
-              </>
-            )}
+            ) : null}
 
             <input
               id="file-upload"
@@ -1520,16 +2277,45 @@ export default function Chat() {
               onChange={handleFileUpload}
               style={{ display: "none" }}
             />
-            <IconButton
-              icon={colorMode === "light" ? <FiMoon /> : <FiSun />}
-              variant="ghost"
-              onClick={toggleColorMode}
-              aria-label="Toggle color mode"
-            />
+            <Box
+              as="button"
+              onClick={cycleTheme}
+              aria-label="Cycle theme (Light / Dark / Retro)"
+              fontSize="20px"
+              color={customTheme === "retro" ? "#8B3A1A" : "gray.600"}
+              _dark={{ color: customTheme === "retro" ? "#8B3A1A" : "gray.400" }}
+              cursor="pointer"
+              transition="color 0.2s"
+              _hover={{
+                color: customTheme === "retro" ? "#BF572A" : "gray.900",
+                _dark: { color: customTheme === "retro" ? "#BF572A" : "gray.100" }
+              }}
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              p={2}
+              borderRadius="md"
+            >
+              {!mounted ? (
+                <FiSun />
+              ) : customTheme === "light" ? (
+                <FiSun />
+              ) : customTheme === "dark" ? (
+                <FiMoon />
+              ) : (
+                <FiFileText />
+              )}
+            </Box>
           </Flex>
 
           {/* Messages Area */}
-          <Box flex={1} overflowY="auto" p={6}>
+          <Box
+            flex={1}
+            overflowY="auto"
+            p={6}
+            bg={customTheme === "retro" ? "transparent" : "gray.50"}
+            _dark={{ bg: customTheme === "retro" ? "transparent" : "gray.950" }}
+          >
             <Container maxW="container.lg">
               {messages.length === 0 ? (
                 <VStack gap={8} align="center" py={10}>
@@ -1649,7 +2435,11 @@ export default function Chat() {
                           </Text>
                           <Button
                             variant="ghost"
-                            onClick={() => setMessages([{ role: "system", content: "Chat started without documents" }])}
+                            onClick={() => {
+                              if (messages.length === 0) {
+                                setMessages([{ role: "system", content: "Chat started without documents" }]);
+                              }
+                            }}
                           >
                             Skip and start chatting →
                           </Button>
@@ -1700,51 +2490,153 @@ export default function Chat() {
                   )}
                 </VStack>
               ) : (
-                <VStack gap={6} align="stretch" py={4}>
+                <VStack gap={4} align="stretch" py={4}>
                   {messages.map((msg, index) => (
-                    <Box
+                    <HStack
                       key={index}
-                      alignSelf={
-                        msg.role === "system"
-                          ? "center"
-                          : msg.role === "user"
-                          ? "flex-end"
-                          : "flex-start"
-                      }
-                      maxW={msg.role === "system" ? "100%" : "85%"}
+                      gap={3}
+                      align="start"
+                      justify={msg.role === "user" ? "flex-end" : "flex-start"}
+                      w="full"
                     >
                       {msg.role === "system" ? (
-                        <Box color="gray.500" _dark={{ color: "gray.400" }} fontSize="sm" fontStyle="italic">
+                        <Box
+                          w="full"
+                          textAlign="center"
+                          color="gray.500"
+                          _dark={{ color: "gray.400" }}
+                          fontSize="sm"
+                          fontStyle="italic"
+                          py={2}
+                        >
                           {renderMessageContent(msg)}
                         </Box>
                       ) : (
-                        <Box
-                          bg={
-                            msg.role === "user"
-                              ? "blue.500"
-                              : "gray.700"
-                          }
-                          _dark={{
-                            bg: msg.role === "user" ? "blue.600" : "gray.700"
-                          }}
-                          px={5}
-                          py={4}
-                          borderRadius="2xl"
-                          shadow="sm"
-                        >
-                          <Box color="white">
-                            {renderMessageContent(msg)}
+                        <>
+                          {msg.role === "assistant" && (
+                            <Box
+                              w="32px"
+                              h="32px"
+                              borderRadius="full"
+                              bg="gradient-to-br from-blue-500 to-purple-600"
+                              display="flex"
+                              alignItems="center"
+                              justifyContent="center"
+                              flexShrink={0}
+                              mt={1}
+                            >
+                              <Text fontSize="sm" fontWeight="bold" color="white">
+                                AI
+                              </Text>
+                            </Box>
+                          )}
+                          <Box
+                            maxW="85%"
+                            bg={
+                              msg.role === "user"
+                                ? "gray.900"
+                                : "white"
+                            }
+                            _dark={{
+                              bg: msg.role === "user" ? "gray.700" : "gray.900"
+                            }}
+                            px={4}
+                            py={3}
+                            borderRadius="2xl"
+                            shadow={msg.role === "user" ? "sm" : "sm"}
+                            border={msg.role === "assistant" ? "1px solid" : "none"}
+                            borderColor="gray.200"
+                            _dark={{
+                              borderColor: "gray.700"
+                            }}
+                            transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                            _hover={msg.role === "assistant" ? {
+                              shadow: "md",
+                              borderColor: "gray.300",
+                              _dark: { borderColor: "gray.600" }
+                            } : {}}
+                          >
+                            <Box
+                              color={msg.role === "user" ? "white" : "gray.800"}
+                              _dark={{ color: msg.role === "user" ? "white" : "gray.100" }}
+                              fontSize="sm"
+                              lineHeight="1.6"
+                            >
+                              {renderMessageContent(msg)}
+                            </Box>
                           </Box>
-                        </Box>
+                          {msg.role === "user" && (
+                            <Box
+                              w="32px"
+                              h="32px"
+                              borderRadius="full"
+                              bg="gradient-to-br from-green-400 to-emerald-600"
+                              display="flex"
+                              alignItems="center"
+                              justifyContent="center"
+                              flexShrink={0}
+                              mt={1}
+                            >
+                              <Text fontSize="xs" fontWeight="bold" color="white">
+                                U
+                              </Text>
+                            </Box>
+                          )}
+                        </>
                       )}
-                    </Box>
+                    </HStack>
                   ))}
                   {isLoading && (
-                    <Box alignSelf="flex-start" maxW="85%">
-                      <Text color="gray.500" _dark={{ color: "gray.400" }} fontStyle="italic">
-                        Thinking...
-                      </Text>
-                    </Box>
+                    <HStack gap={3} align="start">
+                      <Box
+                        w="32px"
+                        h="32px"
+                        borderRadius="full"
+                        bg="gradient-to-br from-blue-500 to-purple-600"
+                        display="flex"
+                        alignItems="center"
+                        justifyContent="center"
+                        flexShrink={0}
+                      >
+                        <Text fontSize="sm" fontWeight="bold" color="white">
+                          AI
+                        </Text>
+                      </Box>
+                      <Box
+                        bg="white"
+                        _dark={{ bg: "gray.900" }}
+                        px={4}
+                        py={3}
+                        borderRadius="2xl"
+                        border="1px solid"
+                        borderColor="gray.200"
+                        _dark={{ borderColor: "gray.700" }}
+                      >
+                        <HStack gap={1}>
+                          <Box
+                            w="2px"
+                            h="2px"
+                            borderRadius="full"
+                            bg="gray.400"
+                            animation="pulse 1.4s ease-in-out infinite"
+                          />
+                          <Box
+                            w="2px"
+                            h="2px"
+                            borderRadius="full"
+                            bg="gray.400"
+                            animation="pulse 1.4s ease-in-out 0.2s infinite"
+                          />
+                          <Box
+                            w="2px"
+                            h="2px"
+                            borderRadius="full"
+                            bg="gray.400"
+                            animation="pulse 1.4s ease-in-out 0.4s infinite"
+                          />
+                        </HStack>
+                      </Box>
+                    </HStack>
                   )}
                 </VStack>
               )}
@@ -1757,8 +2649,9 @@ export default function Chat() {
             py={4}
             borderTopWidth="1px"
             borderColor="gray.200"
-            _dark={{ borderColor: "gray.700", bg: "gray.900" }}
+            _dark={{ borderColor: "gray.800", bg: "gray.900" }}
             bg="white"
+            shadow="md"
           >
             <Container maxW="container.lg">
               <VStack gap={3} align="stretch">
@@ -1811,7 +2704,7 @@ export default function Chat() {
                       _hover={{ transform: "translateY(-1px)" }}
                       transition="all 0.2s"
                     >
-                      ⚡ Direct
+                      Direct
                     </Button>
                     <Button
                       size="xs"
@@ -1823,24 +2716,128 @@ export default function Chat() {
                       _hover={{ transform: "translateY(-1px)" }}
                       transition="all 0.2s"
                     >
-                      📚 Interactive
+                      Interactive
                     </Button>
                   </HStack>
-                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.500" }} fontStyle="italic">
+                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} fontStyle="italic">
                     {tutoringMode === "direct" ? "Get straight answers" : "Learn through Socratic questioning"}
                   </Text>
                 </HStack>
 
-                {/* Input Area */}
-                <HStack gap={3}>
+                {/* Input Area - Minimalistic Design */}
+                <HStack gap={2} align="end" position="relative">
+                  <Box position="relative" flex={1}>
+                    <Textarea
+                      placeholder={uploadedFiles.length > 0 ? "Ask me anything... (Tip: Use @filename to query specific docs)" : "Ask me anything about your research..."}
+                      value={message}
+                      onChange={handleMessageChange}
+                      resize="none"
+                      rows={1}
+                      minH="44px"
+                      maxH="200px"
+                      overflow="auto"
+                      w="100%"
+                      bg="white"
+                      _dark={{ bg: "gray.800" }}
+                      border="1px solid"
+                      borderColor="gray.300"
+                      _dark={{ borderColor: "gray.700" }}
+                      borderRadius="xl"
+                      px={4}
+                      py={3}
+                      fontSize="sm"
+                      _focus={{
+                        outline: "none",
+                        borderColor: "gray.400",
+                        _dark: { borderColor: "gray.600" }
+                      }}
+                      _placeholder={{
+                        color: "gray.400",
+                        _dark: { color: "gray.500" }
+                      }}
+                      onKeyDown={(e) => {
+                        if (showAutocomplete) {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setAutocompleteIndex((prev) =>
+                              prev < autocompleteOptions.length - 1 ? prev + 1 : prev
+                            );
+                          } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setAutocompleteIndex((prev) => (prev > 0 ? prev - 1 : prev));
+                          } else if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            insertMention(autocompleteOptions[autocompleteIndex]);
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            setShowAutocomplete(false);
+                          }
+                        } else if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage(message);
+                        }
+                      }}
+                    />
+
+                    {/* Autocomplete Dropdown */}
+                    {showAutocomplete && autocompleteOptions.length > 0 && (
+                      <Box
+                        position="absolute"
+                        bottom="100%"
+                        left={0}
+                        mb={2}
+                        w="full"
+                        maxH="200px"
+                        overflowY="auto"
+                        bg="white"
+                        _dark={{ bg: "gray.800" }}
+                        border="1px solid"
+                        borderColor="gray.200"
+                        _dark={{ borderColor: "gray.700" }}
+                        borderRadius="lg"
+                        boxShadow="lg"
+                        zIndex={1000}
+                      >
+                        {autocompleteOptions.map((file, idx) => (
+                          <Box
+                            key={idx}
+                            px={3}
+                            py={2}
+                            cursor="pointer"
+                            bg={idx === autocompleteIndex ? "blue.50" : "transparent"}
+                            _dark={{
+                              bg: idx === autocompleteIndex ? "blue.900" : "transparent"
+                            }}
+                            _hover={{
+                              bg: "blue.50",
+                              _dark: { bg: "blue.900" }
+                            }}
+                            onClick={() => insertMention(file)}
+                            onMouseEnter={() => setAutocompleteIndex(idx)}
+                          >
+                            <Text fontSize="sm" noOfLines={1}>
+                              {file.name}
+                            </Text>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
                   <IconButton
                     as="label"
-                    icon={<FiImage />}
                     variant="ghost"
                     aria-label="Upload image"
                     cursor="pointer"
                     isLoading={isUploadingImage}
+                    borderRadius="full"
+                    size="sm"
+                    fontSize="xl"
+                    fontWeight="300"
+                    color="gray.500"
+                    _dark={{ color: "gray.400" }}
+                    _hover={{ bg: "gray.100", _dark: { bg: "gray.700" } }}
                   >
+                    +
                     <input
                       type="file"
                       accept="image/*"
@@ -1849,44 +2846,31 @@ export default function Chat() {
                       style={{ display: "none" }}
                     />
                   </IconButton>
-                  <Textarea
-                    placeholder="Ask me anything about your research..."
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    resize="none"
-                    rows={1}
-                    minH="unset"
-                    overflow="hidden"
-                    borderRadius="xl"
-                    borderColor="gray.200"
-                    _dark={{ borderColor: "gray.700" }}
-                    _focus={{
-                      borderColor: "blue.500",
-                      shadow: "0 0 0 1px var(--chakra-colors-blue-500)",
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        sendMessage(message);
-                      }
-                    }}
-                  />
                   <IconButton
-                    icon={<FiSend />}
-                    colorScheme="blue"
                     aria-label="Send message"
-                    borderRadius="xl"
-                    transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                    borderRadius="full"
+                    size="sm"
+                    fontSize="lg"
+                    color="white"
+                    bg="gray.900"
+                    _dark={{ bg: "gray.100", color: "gray.900" }}
+                    transition="all 0.15s"
                     _hover={{
-                      transform: "translateY(-1px)",
-                      shadow: "md",
+                      bg: "gray.700",
+                      _dark: { bg: "gray.300" }
                     }}
                     _active={{
-                      transform: "translateY(0)",
+                      transform: "scale(0.95)",
                     }}
                     onClick={() => sendMessage(message)}
                     disabled={(!message.trim() && selectedImages.length === 0) || isLoading}
-                  />
+                    _disabled={{
+                      opacity: 0.3,
+                      cursor: "not-allowed",
+                    }}
+                  >
+                    ↑
+                  </IconButton>
                 </HStack>
 
                 {/* Suggested Questions - NotebookLM Style */}
@@ -1998,6 +2982,21 @@ export default function Chat() {
           borderColor="gray.100"
           display={{ base: "none", lg: "block" }}
           overflowY="auto"
+          css={{
+            '&::-webkit-scrollbar': {
+              width: '6px',
+            },
+            '&::-webkit-scrollbar-track': {
+              background: 'transparent',
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#CBD5E0',
+              borderRadius: '3px',
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              background: '#A0AEC0',
+            },
+          }}
         >
           <VStack gap={4} align="stretch" p={4}>
             <Heading size="md" fontWeight="600">
@@ -2010,6 +3009,43 @@ export default function Chat() {
 
             {/* Studio Actions - NotebookLM style */}
             <VStack gap={2} align="stretch" mt={2}>
+              {/* Podcast */}
+              <Button
+                variant="outline"
+                justifyContent="flex-start"
+                h="auto"
+                py={4}
+                px={4}
+                borderRadius="xl"
+                borderColor="gray.100"
+                _dark={{ borderColor: "gray.800", bg: "gray.900" }}
+                bg="gray.50"
+                transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                _hover={{
+                  bg: "blue.50",
+                  borderColor: "blue.500",
+                  transform: "translateY(-2px)",
+                  shadow: "md",
+                  _dark: { bg: "blue.900", borderColor: "blue.400" },
+                }}
+                _active={{
+                  transform: "translateY(0)",
+                }}
+                isDisabled={uploadedFiles.length === 0 || isGeneratingPodcast}
+                onClick={generatePodcast}
+                isLoading={isGeneratingPodcast}
+                loadingText="Generating..."
+              >
+                <VStack align="start" gap={1} w="full">
+                  <Text fontWeight="600" fontSize="sm">
+                    Podcast
+                  </Text>
+                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                    {isGeneratingPodcast ? 'Creating your study podcast...' : 'AI-generated study podcast'}
+                  </Text>
+                </VStack>
+              </Button>
+
               {/* Flashcards */}
               <Button
                 variant="outline"
@@ -2032,19 +3068,17 @@ export default function Chat() {
                 _active={{
                   transform: "translateY(0)",
                 }}
-                isDisabled={uploadedFiles.length === 0}
+                isDisabled={uploadedFiles.length === 0 || (isGeneratingStudio && studioType === 'flashcards')}
                 onClick={() => generateStudioContent('flashcards')}
                 isLoading={isGeneratingStudio && studioType === 'flashcards'}
+                loadingText="Generating..."
               >
                 <VStack align="start" gap={1} w="full">
-                  <HStack gap={2}>
-                    <Text fontSize="2xl">📇</Text>
-                    <Text fontWeight="600" fontSize="sm">
-                      Flashcards
-                    </Text>
-                  </HStack>
+                  <Text fontWeight="600" fontSize="sm">
+                    Flashcards
+                  </Text>
                   <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
-                    Create study flashcards
+                    {isGeneratingStudio && studioType === 'flashcards' ? 'Creating your study flashcards...' : 'Create study flashcards'}
                   </Text>
                 </VStack>
               </Button>
@@ -2076,18 +3110,143 @@ export default function Chat() {
                 isLoading={isGeneratingStudio && studioType === 'quiz'}
               >
                 <VStack align="start" gap={1} w="full">
-                  <HStack gap={2}>
-                    <Text fontSize="2xl">✅</Text>
-                    <Text fontWeight="600" fontSize="sm">
-                      Quiz
-                    </Text>
-                  </HStack>
+                  <Text fontWeight="600" fontSize="sm">
+                    Quiz
+                  </Text>
                   <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
-                    Test your understanding
+                    {isGeneratingStudio && studioType === 'quiz' ? 'Creating your quiz...' : 'Test your understanding'}
                   </Text>
                 </VStack>
               </Button>
+
             </VStack>
+
+            {/* Divider */}
+            {savedMaterials.length > 0 && (
+              <Box my={4} borderBottom="1px solid" borderColor="gray.200" _dark={{ borderColor: "gray.700" }} />
+            )}
+
+            {/* Saved Materials Section - NotebookLM style */}
+            {savedMaterials.length > 0 && (
+              <VStack gap={2} align="stretch" mt={4}>
+                <Text fontSize="xs" fontWeight="700" color="gray.600" _dark={{ color: "gray.400" }} letterSpacing="wider" mb={1}>
+                  SAVED MATERIALS ({savedMaterials.length})
+                </Text>
+
+                {savedMaterials.map((material) => {
+                  const timeAgo = (() => {
+                    const seconds = Math.floor((new Date() - material.timestamp) / 1000);
+                    if (seconds < 60) return 'Just now';
+                    const minutes = Math.floor(seconds / 60);
+                    if (minutes < 60) return `${minutes}m ago`;
+                    const hours = Math.floor(minutes / 60);
+                    if (hours < 24) return `${hours}h ago`;
+                    return new Date(material.timestamp).toLocaleDateString();
+                  })();
+
+                  return (
+                    <Box
+                      key={material.id}
+                      p={3}
+                      bg="white"
+                      _dark={{ bg: "gray.800" }}
+                      border="1px solid"
+                      borderColor="gray.200"
+                      _dark={{ borderColor: "gray.700" }}
+                      borderRadius="lg"
+                      transition="all 0.2s"
+                      _hover={{ borderColor: "blue.400", shadow: "sm" }}
+                    >
+                      <VStack gap={2} align="stretch">
+                        <HStack justify="space-between">
+                          <VStack align="start" gap={0} flex={1}>
+                            <Text fontSize="xs" fontWeight="600" color="gray.800" _dark={{ color: "gray.200" }}>
+                              {material.type === 'podcast' && 'Podcast'}
+                              {material.type === 'flashcards' && `Flashcards (${material.count})`}
+                              {material.type === 'quiz' && `Quiz (${material.count} questions)`}
+                            </Text>
+                            <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                              {timeAgo}
+                            </Text>
+                          </VStack>
+                          <IconButton
+                            icon={<FiX />}
+                            size="xs"
+                            variant="ghost"
+                            onClick={() => {
+                              setSavedMaterials(savedMaterials.filter(m => m.id !== material.id));
+                            }}
+                            aria-label="Delete material"
+                          />
+                        </HStack>
+
+                        {/* Podcast Player */}
+                        {material.type === 'podcast' && (
+                          <VStack gap={2} align="stretch">
+                            <audio
+                              controls
+                              style={{ width: '100%', height: '32px' }}
+                              src={material.audioUrl}
+                            >
+                              Your browser does not support the audio element.
+                            </audio>
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              w="full"
+                              onClick={() => {
+                                setPodcastAudio(material.audioUrl);
+                                setPodcastScript(material.script);
+                                setShowPodcastPlayer(true);
+                              }}
+                              fontSize="xs"
+                            >
+                              View Transcript
+                            </Button>
+                          </VStack>
+                        )}
+
+                        {/* Flashcards Button */}
+                        {material.type === 'flashcards' && (
+                          <Button
+                            size="sm"
+                            w="full"
+                            onClick={() => {
+                              setStudioContent(material.data);
+                              setStudioType('flashcards');
+                              setCurrentFlashcardIndex(0);
+                              setShowFlashcardAnswer(false);
+                              setStudioModalOpen(true);
+                            }}
+                            colorScheme="blue"
+                          >
+                            Study Flashcards
+                          </Button>
+                        )}
+
+                        {/* Quiz Button */}
+                        {material.type === 'quiz' && (
+                          <Button
+                            size="sm"
+                            w="full"
+                            onClick={() => {
+                              setStudioContent(material.data);
+                              setStudioType('quiz');
+                              setQuizAnswers({});
+                              setShowQuizResults(false);
+                              setStudioModalOpen(true);
+                            }}
+                            colorScheme="blue"
+                          >
+                            Take Quiz
+                          </Button>
+                        )}
+                      </VStack>
+                    </Box>
+                  );
+                })}
+              </VStack>
+            )}
 
             {/* Help Text */}
             {uploadedFiles.length === 0 && (
@@ -2377,9 +3536,12 @@ export default function Chat() {
 
                   <Box
                     p={8}
-                    bg="gradient-to-br from-blue-50 to-purple-50"
-                    _dark={{ bg: "gray.800" }}
-                    borderRadius="xl"
+                    bg="white"
+                    _dark={{ bg: "black" }}
+                    border="2px solid"
+                    borderColor="black"
+                    _dark={{ borderColor: "white" }}
+                    borderRadius="lg"
                     minH="300px"
                     display="flex"
                     flexDirection="column"
@@ -2387,19 +3549,19 @@ export default function Chat() {
                     alignItems="center"
                     cursor="pointer"
                     onClick={() => setShowFlashcardAnswer(!showFlashcardAnswer)}
-                    transition="all 0.3s ease"
-                    _hover={{ transform: "scale(1.02)" }}
+                    transition="all 0.2s ease"
+                    _hover={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)" }}
                   >
                     <VStack gap={6}>
-                      <Text fontSize="xs" fontWeight="700" color="purple.600" _dark={{ color: "purple.300" }} letterSpacing="wider">
+                      <Text fontSize="xs" fontWeight="700" color="black" _dark={{ color: "white" }} letterSpacing="wider">
                         {showFlashcardAnswer ? 'ANSWER' : 'QUESTION'}
                       </Text>
-                      <Text fontSize="xl" fontWeight="600" textAlign="center" lineHeight="1.6">
+                      <Text fontSize="xl" fontWeight="500" textAlign="center" lineHeight="1.6" color="black" _dark={{ color: "white" }}>
                         {showFlashcardAnswer
                           ? studioContent.flashcards[currentFlashcardIndex].answer
                           : studioContent.flashcards[currentFlashcardIndex].question}
                       </Text>
-                      <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                      <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
                         {showFlashcardAnswer ? 'Click to see question' : 'Click to reveal answer'}
                       </Text>
                     </VStack>
@@ -2535,6 +3697,101 @@ export default function Chat() {
                   <Text fontSize="md" whiteSpace="pre-wrap" lineHeight="1.8">
                     {studioContent.report}
                   </Text>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        </>
+      )}
+
+      {/* Podcast Player Modal */}
+      {showPodcastPlayer && podcastAudio && (
+        <>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.700"
+            zIndex={2000}
+            onClick={() => setShowPodcastPlayer(false)}
+          />
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            bg="white"
+            _dark={{ bg: "gray.800" }}
+            borderRadius="2xl"
+            boxShadow="2xl"
+            zIndex={2001}
+            maxW="600px"
+            w="90%"
+            maxH="80vh"
+            overflow="hidden"
+          >
+            {/* Header */}
+            <Flex
+              px={6}
+              py={4}
+              borderBottom="1px solid"
+              borderColor="gray.200"
+              _dark={{ borderColor: "gray.700" }}
+              justify="space-between"
+              align="center"
+            >
+              <HStack gap={3}>
+                <Text fontSize="2xl">🎙️</Text>
+                <VStack align="start" gap={0}>
+                  <Text fontSize="lg" fontWeight="700" color="gray.800" _dark={{ color: "gray.100" }}>
+                    Study Podcast
+                  </Text>
+                  <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
+                    AI-generated audio summary
+                  </Text>
+                </VStack>
+              </HStack>
+              <IconButton
+                icon={<FiX />}
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowPodcastPlayer(false)}
+                aria-label="Close podcast player"
+              />
+            </Flex>
+
+            {/* Audio Player */}
+            <Box p={6}>
+              <audio
+                controls
+                style={{ width: '100%', marginBottom: '16px' }}
+                src={podcastAudio}
+              >
+                Your browser does not support the audio element.
+              </audio>
+
+              {/* Transcript */}
+              {podcastScript && (
+                <Box>
+                  <Text fontSize="sm" fontWeight="600" color="gray.700" _dark={{ color: "gray.300" }} mb={2}>
+                    Transcript:
+                  </Text>
+                  <Box
+                    maxH="300px"
+                    overflowY="auto"
+                    p={4}
+                    bg="gray.50"
+                    _dark={{ bg: "gray.900" }}
+                    borderRadius="md"
+                    fontSize="sm"
+                    lineHeight="1.8"
+                    color="gray.700"
+                    _dark={{ color: "gray.300" }}
+                  >
+                    {podcastScript}
+                  </Box>
                 </Box>
               )}
             </Box>
@@ -2697,6 +3954,237 @@ export default function Chat() {
           zIndex={1000}
           onClick={() => setDocumentModalOpen(false)}
         />
+      )}
+
+      {/* Upload Interface Overlay Modal */}
+      {showUploadInterface && (
+        <>
+          {/* Backdrop */}
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.700"
+            zIndex={2000}
+            onClick={() => setShowUploadInterface(false)}
+          />
+
+          {/* Modal Content */}
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            w="90%"
+            maxW="600px"
+            maxH="90vh"
+            overflowY="auto"
+            bg="white"
+            _dark={{ bg: "gray.800" }}
+            borderRadius="xl"
+            boxShadow="2xl"
+            zIndex={2001}
+            p={6}
+          >
+            {/* Close Button */}
+            <IconButton
+              position="absolute"
+              top={4}
+              right={4}
+              aria-label="Close"
+              variant="ghost"
+              size="sm"
+              borderRadius="full"
+              color="gray.900"
+              _dark={{ color: "gray.100" }}
+              _hover={{
+                bg: "gray.100",
+                _dark: { bg: "gray.700" }
+              }}
+              onClick={() => setShowUploadInterface(false)}
+            >
+              <FiX />
+            </IconButton>
+
+            {/* Upload Interface Content */}
+            <VStack gap={6} w="full">
+              <Heading size="lg" textAlign="center" pr={8}>
+                Add Sources
+              </Heading>
+
+              {/* File Upload Card */}
+              <Card.Root w="full" variant="outline">
+                <Card.Body>
+                  <VStack gap={4}>
+                    <Box
+                      cursor="pointer"
+                      w="full"
+                      p={8}
+                      border="2px dashed"
+                      borderColor={isDragging ? "blue.500" : (isUploading ? "blue.400" : "gray.300")}
+                      _dark={{ borderColor: isDragging ? "blue.500" : (isUploading ? "blue.400" : "gray.600") }}
+                      borderRadius="lg"
+                      textAlign="center"
+                      transition="all 0.2s"
+                      bg={isDragging ? "blue.50" : "transparent"}
+                      _dark={{ bg: isDragging ? "blue.900" : "transparent" }}
+                      _hover={{
+                        borderColor: "blue.400",
+                        bg: "blue.50",
+                        _dark: { bg: "blue.900" }
+                      }}
+                      opacity={isUploading ? 0.7 : 1}
+                      onClick={() => {
+                        if (!isUploading) {
+                          document.getElementById('modal-file-upload')?.click();
+                        }
+                      }}
+                      onDragEnter={handleDragEnter}
+                      onDragLeave={handleDragLeave}
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                    >
+                      <VStack gap={3}>
+                        <Box fontSize="3xl" color="blue.500">
+                          {isUploading ? <Spinner size="lg" color="blue.500" /> : <FiUpload />}
+                        </Box>
+                        <Text fontWeight="semibold">
+                          {isUploading ? "Uploading..." : "Drop files here or click to browse"}
+                        </Text>
+                        <Text fontSize="sm" color="gray.500">
+                          {isUploading
+                            ? "Processing document with GPT-4 Vision..."
+                            : "Supports PDF, TXT, MD, CSV, JSON, and image files (JPG, PNG, etc.)"}
+                        </Text>
+                      </VStack>
+                    </Box>
+                    <input
+                      id="modal-file-upload"
+                      type="file"
+                      accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
+                      onChange={handleFileUpload}
+                      multiple
+                      style={{ display: "none" }}
+                      disabled={isUploading}
+                    />
+                  </VStack>
+                </Card.Body>
+              </Card.Root>
+
+              {/* URL Input Card */}
+              <Card.Root w="full" variant="outline">
+                <Card.Body>
+                  <VStack gap={4} align="stretch">
+                    <HStack gap={3}>
+                      <Box fontSize="xl" color="blue.500">
+                        <FiLink />
+                      </Box>
+                      <Text fontWeight="semibold">Add from URL</Text>
+                    </HStack>
+                    <HStack gap={2}>
+                      <input
+                        type="text"
+                        placeholder="Paste arXiv, PubMed, or paper URL..."
+                        value={urlInput}
+                        onChange={(e) => setUrlInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !isUploading) {
+                            handleUrlSubmit();
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          border: "1px solid #CBD5E0",
+                          fontSize: "14px",
+                        }}
+                        disabled={isUploading}
+                      />
+                      <Button
+                        colorScheme="blue"
+                        onClick={handleUrlSubmit}
+                        isLoading={isUploading}
+                        disabled={!urlInput.trim() || isUploading}
+                      >
+                        Add
+                      </Button>
+                    </HStack>
+                    <Text fontSize="xs" color="gray.500">
+                      Works with arXiv, PubMed, Google Scholar, and most academic sites
+                    </Text>
+                  </VStack>
+                </Card.Body>
+              </Card.Root>
+            </VStack>
+          </Box>
+        </>
+      )}
+
+      {/* PDF Viewer Modal */}
+      {pdfViewerVisible && currentPdfData && (
+        <>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.800"
+            zIndex={3000}
+            onClick={() => setPdfViewerVisible(false)}
+          />
+          <Box
+            position="fixed"
+            top="5%"
+            left="5%"
+            right="5%"
+            bottom="5%"
+            bg="white"
+            _dark={{ bg: "gray.900" }}
+            borderRadius="xl"
+            boxShadow="2xl"
+            zIndex={3001}
+            overflow="hidden"
+            display="flex"
+            flexDirection="column"
+          >
+            {/* Header */}
+            <Flex
+              px={4}
+              py={3}
+              borderBottom="1px solid"
+              borderColor="gray.200"
+              _dark={{ borderColor: "gray.700" }}
+              justify="space-between"
+              align="center"
+              bg="gray.50"
+              _dark={{ bg: "gray.800" }}
+            >
+              <Text fontSize="md" fontWeight="600">
+                PDF Viewer
+              </Text>
+              <IconButton
+                icon={<FiX />}
+                variant="ghost"
+                size="sm"
+                onClick={() => setPdfViewerVisible(false)}
+                aria-label="Close PDF viewer"
+              />
+            </Flex>
+
+            {/* PDF Viewer */}
+            <Box flex={1} overflow="hidden">
+              <PdfViewerWithHighlight
+                pdfData={currentPdfData}
+                pageNumber={currentPdfPage}
+                highlightText={currentHighlightText}
+              />
+            </Box>
+          </Box>
+        </>
       )}
 
     </>

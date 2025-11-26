@@ -5,3 +5,65 @@
   margin: 0;
 }
 
+/* Gradient backgrounds for avatars */
+.gradient-to-br {
+  background: linear-gradient(to bottom right, var(--from-color), var(--to-color));
+}
+
+/* Avatar gradients - AI (blue to purple) */
+[style*="gradient-to-br from-blue-500 to-purple-600"] {
+  background: linear-gradient(135deg, #3b82f6 0%, #9333ea 100%);
+}
+
+/* Avatar gradients - User (green to emerald) */
+[style*="gradient-to-br from-green-400 to-emerald-600"] {
+  background: linear-gradient(135deg, #4ade80 0%, #059669 100%);
+}
+
+/* Pulse animation for thinking indicator */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* Smooth scrolling for chat messages */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Dark mode scrollbar */
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-thumb {
+    background: rgba(75, 85, 99, 0.3);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(75, 85, 99, 0.5);
+  }
+}
+

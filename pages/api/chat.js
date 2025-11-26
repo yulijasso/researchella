@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages, useRAG = true, sessionId = 'default', tutoringMode = 'direct' } = req.body;
+    const { messages, useRAG = true, sessionId = 'default', tutoringMode = 'direct', mentionedSources = null } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Messages array is required' });
@@ -62,9 +62,13 @@ export default async function handler(req, res) {
     if (useRAG && lastUserMessage) {
       const queryText = getMessageText(lastUserMessage);
       if (queryText) {
-        // Search for relevant documents - increased to 8 for comprehensive coverage
-        console.log(`\n🔍 RAG Query: "${queryText}" (User: ${userId}, Session: ${sessionId})`);
-        retrievedDocs = await searchDocuments(queryText, 15, sessionId, userId);  // More chunks since they're smaller
+        // Search for relevant documents with @mention filtering at database level
+        const mentionInfo = mentionedSources ? ` (@mentioned: ${mentionedSources.join(', ')})` : '';
+        console.log(`\n🔍 RAG Query: "${queryText}"${mentionInfo} (User: ${userId}, Session: ${sessionId})`);
+
+        // Pass mentioned sources to searchDocuments for Pinecone-level filtering
+        retrievedDocs = await searchDocuments(queryText, 15, sessionId, userId, mentionedSources);  // More chunks since they're smaller
+
         console.log(`📊 Retrieved ${retrievedDocs.length} documents from vector store`);
 
       if (retrievedDocs.length > 0) {
@@ -230,11 +234,12 @@ ${modeInstructions}
    - If unsure, quote more rather than paraphrase
    - Be comprehensive and detailed in your explanations
 
-4. ❌ ONLY IF NO RELEVANT CONTEXT:
-   - Only then can you say the information isn't in the uploaded documents
-   - But first, check thoroughly through all provided sources
-   - If the user's question is completely unrelated to the sources, respond with:
-     "I am unable to provide a response regarding [topic] as it does not appear in the provided sources or our conversation history."
+4. 🚨 CRITICAL: YOU MUST USE THE PROVIDED CONTEXT
+   - If context chunks are provided above, YOU MUST answer using ONLY those chunks
+   - DO NOT answer from your general knowledge when context is provided
+   - ALWAYS cite with [CHUNK-N:"exact quote"] when context is available
+   - If the provided chunks don't contain the answer, say: "The provided documents don't contain information about [topic]."
+   - DO NOT provide answers from your training data when documents are uploaded
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -249,15 +254,19 @@ Your capabilities:
 ${contextInfo}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 YOUR MISSION: Extract and present information from the context above with [CHUNK-N] tags. DO NOT ignore the provided context!
+🎯 YOUR MISSION: Extract and present information from the context above with [CHUNK-N:"quote"] citations!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚨 FINAL CRITICAL REMINDER - READ THIS BEFORE RESPONDING:
+🚨 ABSOLUTE RULES - NO EXCEPTIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚨🚨🚨 STOP AND READ THIS BEFORE RESPONDING 🚨🚨🚨
+1. IF CONTEXT CHUNKS ARE PROVIDED ABOVE:
+   - You MUST answer ONLY using information from those chunks
+   - You MUST NOT use your general knowledge or training data
+   - Every statement MUST have a [CHUNK-N:"exact verbatim quote"] citation
+   - If you can't answer from the chunks, say so explicitly
 
-CITATION FORMAT IS MANDATORY - NO EXCEPTIONS:
+2. CITATION FORMAT IS MANDATORY - NO EXCEPTIONS:
 
 YOU MUST USE THIS FORMAT: [CHUNK-N:"exact verbatim quote from chunk"]
 DO NOT USE: [CHUNK-N] or [CHUNK-N:S] or any other format

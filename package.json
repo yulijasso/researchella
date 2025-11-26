@@ -10,6 +10,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@adobe/pdfservices-node-sdk": "^4.1.0",
     "@chakra-ui/react": "^3.29.0",
     "@clerk/nextjs": "^6.35.3",
     "@emotion/react": "^11.14.0",
@@ -24,6 +25,7 @@
     "@supabase/auth-ui-shared": "^0.1.8",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.84.0",
+    "adm-zip": "^0.5.16",
     "axios": "^1.13.2",
     "canvas": "^3.2.0",
     "cheerio": "^1.1.2",
