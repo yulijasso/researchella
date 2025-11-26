@@ -201,7 +201,7 @@ Student: "What is adversarial training?"
 You: "Adversarial training is a technique where models are trained on adversarial examples to improve robustness [CHUNK-1:"models are trained on adversarial examples to improve robustness"]. Specifically, it involves generating adversarial perturbations during training [CHUNK-2:"generating adversarial perturbations during training and including them in the training data"], which helps the model learn to resist attacks [CHUNK-3:"learn to resist attacks and make more reliable predictions"].
 `;
 
-    const systemPrompt = `You are PaperSage, an intelligent academic research assistant specializing in analyzing and discussing academic papers.
+    const systemPrompt = `You are Researchella, an intelligent academic research assistant specializing in analyzing and discussing academic papers.
 
 ${modeInstructions}
 
