@@ -106,6 +106,16 @@ export default function Chat() {
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [mentionStartPos, setMentionStartPos] = useState(0);
 
+  // Helper function to get display name from file (strips || suffix for youtube/url sources)
+  const getDisplayName = (file) => {
+    if (!file?.name) return 'Unknown';
+    // For YouTube and URL sources, name is stored as "Title||VideoId" or "Title||URL"
+    if ((file.type === 'youtube' || file.type === 'url') && file.name.includes('||')) {
+      return file.name.split('||')[0];
+    }
+    return file.name;
+  };
+
   // Fix hydration error for color mode
   useEffect(() => {
     setMounted(true);
@@ -2442,7 +2452,7 @@ export default function Chat() {
                           <VStack align="start" gap={0} flex={1} minW={0}>
                             <HStack gap={1}>
                               <Text fontSize="xs" fontWeight="600" noOfLines={2}>
-                                {file.name}
+                                {getDisplayName(file)}
                               </Text>
                               {file.url && (
                                 <IconButton
@@ -2501,7 +2511,7 @@ export default function Chat() {
                           >
                             <iframe
                               src={`https://www.youtube.com/embed/${file.videoId || file.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/)?.[1] || ''}`}
-                              title={file.name}
+                              title={getDisplayName(file)}
                               style={{
                                 position: 'absolute',
                                 top: 0,
@@ -2698,7 +2708,7 @@ export default function Chat() {
                                 fontSize="sm"
                               />
                             ) : (
-                              <Text fontSize="sm" noOfLines={1}>{file.name}</Text>
+                              <Text fontSize="sm" noOfLines={1}>{getDisplayName(file)}</Text>
                             )}
                             {file.chunks && (
                               <Text fontSize="xs" color="gray.500">{file.chunks} chunks</Text>
@@ -3555,7 +3565,7 @@ export default function Chat() {
                             onMouseEnter={() => setAutocompleteIndex(idx)}
                           >
                             <Text fontSize="sm" noOfLines={1}>
-                              {file.name}
+                              {getDisplayName(file)}
                             </Text>
                           </Box>
                         ))}
