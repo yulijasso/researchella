@@ -4,6 +4,21 @@ import { addDocumentsToStore } from '../../lib/vectorStore';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { Innertube } from 'youtubei.js';
 
+// Fetch video title from YouTube oEmbed API (more reliable fallback)
+async function fetchTitleFromOEmbed(videoId) {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+    const response = await fetch(oembedUrl);
+    if (response.ok) {
+      const data = await response.json();
+      return data.title || null;
+    }
+  } catch (error) {
+    console.log('oEmbed fallback failed:', error.message);
+  }
+  return null;
+}
+
 // Extract video ID from various YouTube URL formats
 function extractVideoId(url) {
   const patterns = [
@@ -76,12 +91,26 @@ export default async function handler(req, res) {
       });
     }
 
-    const title = videoInfo.basic_info?.title || `YouTube Video (${videoId})`;
+    // Get title from Innertube first, then try oEmbed as fallback
+    let title = videoInfo.basic_info?.title;
     const author = videoInfo.basic_info?.author || 'Unknown';
     const description = videoInfo.basic_info?.short_description || '';
     const duration = videoInfo.basic_info?.duration || 0;
     const viewCount = videoInfo.basic_info?.view_count || 0;
     const keywords = videoInfo.basic_info?.keywords || [];
+
+    // If title is missing or looks like a fallback, try oEmbed API
+    if (!title || title.includes(videoId)) {
+      console.log('📡 Title missing/invalid, trying oEmbed fallback...');
+      const oembedTitle = await fetchTitleFromOEmbed(videoId);
+      if (oembedTitle) {
+        title = oembedTitle;
+        console.log(`✅ Got title from oEmbed: ${title}`);
+      } else {
+        title = `YouTube Video (${videoId})`;
+        console.log('⚠️ Could not fetch title, using fallback');
+      }
+    }
 
     console.log(`📝 Video title: ${title}`);
     console.log(`📝 Author: ${author}`);
