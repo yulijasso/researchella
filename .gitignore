@@ -43,3 +43,8 @@ next-env.d.ts
 # uploaded documents and vector store
 /data/
 google-service-account.json
+
+# Python
+venv/
+__pycache__/
+*.pyc

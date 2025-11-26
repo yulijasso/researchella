@@ -1,7 +1,7 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
-import { addDocuments } from '../../lib/vectorStore';
-import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
+import { addDocumentsToStore } from '../../lib/vectorStore';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -58,14 +58,17 @@ export default async function handler(req, res) {
     console.log(`✂️ Split into ${chunks.length} chunks`);
 
     // Add to vector store
-    await addDocuments(
-      chunks,
-      {
-        source: title || url,
-        type: 'url',
-        url: url,
-      },
-      sessionId
+    await addDocumentsToStore(
+      chunks.map(chunk => ({
+        content: chunk,
+        metadata: {
+          source: title || url,
+          type: 'url',
+          url: url,
+        }
+      })),
+      sessionId,
+      userId
     );
 
     // Save to database
