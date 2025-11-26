@@ -3690,6 +3690,11 @@ export default function Chat() {
                   </IconButton>
                 </HStack>
 
+                {/* Disclaimer */}
+                <Text fontSize="2xs" color="gray.400" _dark={{ color: "gray.500" }} textAlign="center" mt={1}>
+                  Researchella can be inaccurate; please double check its responses.
+                </Text>
+
                 {/* Suggested Questions - NotebookLM Style */}
                 {uploadedFiles.length > 0 && messages.length === 0 && (
                   <VStack gap={2} align="stretch" mt={2}>
