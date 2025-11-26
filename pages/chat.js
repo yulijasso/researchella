@@ -1669,6 +1669,27 @@ export default function Chat() {
                     Open PDF
                   </Button>
                 )}
+
+                {/* Open URL Button for web/youtube sources */}
+                {citation?.url && (citation?.type === 'url' || citation?.type === 'youtube') && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    mt={2}
+                    w="full"
+                    as="a"
+                    href={citation.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    fontSize="xs"
+                    color="#4F46E5"
+                    _hover={{ bg: "#EEF2FF" }}
+                    _dark={{ color: "#818CF8", _hover: { bg: "#312E81" } }}
+                    leftIcon={citation.type === 'youtube' ? <FiYoutube size={12} /> : <FiGlobe size={12} />}
+                  >
+                    {citation.type === 'youtube' ? 'Watch on YouTube' : 'Visit Source'}
+                  </Button>
+                )}
               </Box>
             </Box>
           </Popover.Content>

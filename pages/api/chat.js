@@ -467,6 +467,7 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
             source: doc.metadata?.source || 'Unknown',
             page: doc.metadata?.page || null,
             type: doc.metadata?.type || 'document',
+            url: doc.metadata?.url || null,  // Include URL for web/youtube sources
             content: doc.content,  // Full chunk content
             quote: vq.quote,  // The exact quote
             highlightText: vq.quote,  // Show the exact quote in tooltip
@@ -491,6 +492,7 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
             source: fallbackDoc.metadata?.source || 'Unknown',
             page: fallbackDoc.metadata?.page || null,
             type: fallbackDoc.metadata?.type || 'document',
+            url: fallbackDoc.metadata?.url || null,  // Include URL for web/youtube sources
             content: fallbackDoc.content,
             quote: vq.quote,
             highlightText: fallbackDoc.content.substring(0, 200) + '...',
@@ -514,6 +516,7 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
             source: doc.metadata?.source || 'Unknown',
             page: doc.metadata?.page || null,
             type: doc.metadata?.type || 'document',
+            url: doc.metadata?.url || null,  // Include URL for web/youtube sources
             content: doc.content,
             highlightText: doc.content.substring(0, 200) + '...',
             noQuote: true
