@@ -24,7 +24,7 @@ import {
   InputGroup,
 } from "@chakra-ui/react";
 import Image from "next/image";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube } from "react-icons/fi";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud } from "react-icons/fi";
 import { SiGoogledrive } from "react-icons/si";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useColorMode } from "@/components/ui/color-mode";
@@ -34,7 +34,7 @@ import { useAuth } from "@/contexts/AuthContext";
 // Dynamically import PDF viewer to avoid SSR issues
 const PdfViewerWithHighlight = dynamic(() => import('../components/PdfViewerWithHighlight'), {
   ssr: false,
-  loading: () => <Box h="100%" display="flex" alignItems="center" justifyContent="center"><Spinner size="xl" color="blue.500" /></Box>
+  loading: () => <Box h="100%" display="flex" alignItems="center" justifyContent="center"><Spinner size="xl" color="#EEF2FF0" /></Box>
 });
 
 export default function Chat() {
@@ -43,7 +43,7 @@ export default function Chat() {
   const [sessionName, setSessionName] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { colorMode, toggleColorMode } = useColorMode();
-  const [customTheme, setCustomTheme] = useState("light"); // "light", "dark", or "retro"
+  const [customTheme, setCustomTheme] = useState("light"); // "light" or "dark"
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -91,6 +91,9 @@ export default function Chat() {
   const [showStudioPanel, setShowStudioPanel] = useState(true); // Toggle studio panel
   const [isGoogleApiLoaded, setIsGoogleApiLoaded] = useState(false); // Google API loaded state
   const [isLoadingGoogleDrive, setIsLoadingGoogleDrive] = useState(false); // Loading state for Google Drive
+  const [isLoadingOneDrive, setIsLoadingOneDrive] = useState(false); // Loading state for OneDrive
+  const [showWebsiteInput, setShowWebsiteInput] = useState(false); // Show website URL input
+  const [showYoutubeInput, setShowYoutubeInput] = useState(false); // Show YouTube URL input
 
   // Autocomplete for @mentions
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -103,27 +106,17 @@ export default function Chat() {
     setMounted(true);
     // Load custom theme from localStorage
     const savedTheme = localStorage.getItem('customTheme');
-    if (savedTheme && ['light', 'dark', 'retro'].includes(savedTheme)) {
+    if (savedTheme && ['light', 'dark'].includes(savedTheme)) {
       setCustomTheme(savedTheme);
     }
   }, []);
 
-  // Cycle through themes: light → dark → retro → light
+  // Toggle between light and dark themes
   const cycleTheme = () => {
-    const themeOrder = ['light', 'dark', 'retro'];
-    const currentIndex = themeOrder.indexOf(customTheme);
-    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length];
+    const nextTheme = customTheme === 'light' ? 'dark' : 'light';
     setCustomTheme(nextTheme);
     localStorage.setItem('customTheme', nextTheme);
-
-    // Also update Chakra's color mode for light/dark
-    if (nextTheme === 'light' && colorMode === 'dark') {
-      toggleColorMode();
-    } else if (nextTheme === 'dark' && colorMode === 'light') {
-      toggleColorMode();
-    } else if (nextTheme === 'retro' && colorMode === 'dark') {
-      toggleColorMode(); // Set to light mode for retro
-    }
+    toggleColorMode();
   };
 
   // Google Drive Picker handler
@@ -248,6 +241,8 @@ export default function Chat() {
                     name: file.name,
                     chunks: result.chunks,
                     type: 'google-drive',
+                    isPdf: result.isPdf,
+                    pdfData: result.pdfData, // For PDF viewing with highlights
                   }]);
 
                   toaster.create({
@@ -289,6 +284,151 @@ export default function Chat() {
         duration: 5000,
       });
       setIsLoadingGoogleDrive(false);
+    }
+  }, [sessionId, uploadedFiles]);
+
+  // OneDrive Picker handler
+  const handleOneDrivePicker = useCallback(async () => {
+    // OneDrive requires Azure AD app registration
+    // To enable: Set NEXT_PUBLIC_ONEDRIVE_CLIENT_ID in .env.local
+    const oneDriveClientId = process.env.NEXT_PUBLIC_ONEDRIVE_CLIENT_ID;
+
+    if (!oneDriveClientId) {
+      toaster.create({
+        title: "OneDrive Not Configured",
+        description: "OneDrive integration requires Azure AD setup. Use Google Drive or file upload instead.",
+        type: "info",
+        duration: 5000,
+      });
+      return;
+    }
+
+    if (!sessionId) {
+      toaster.create({
+        title: "No Session",
+        description: "Please wait for the session to load.",
+        type: "warning",
+        duration: 3000,
+      });
+      return;
+    }
+
+    setIsLoadingOneDrive(true);
+
+    try {
+      // Load OneDrive Picker SDK if not already loaded
+      if (!window.OneDrive) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://js.live.net/v7.2/OneDrive.js';
+          script.onload = resolve;
+          script.onerror = reject;
+          document.body.appendChild(script);
+        });
+      }
+
+      // Open OneDrive picker
+      const options = {
+        clientId: oneDriveClientId,
+        action: "download",
+        multiSelect: false,
+        viewType: "files",
+        filter: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.json",
+        advanced: {
+          redirectUri: window.location.origin,
+        },
+        success: async (files) => {
+          if (files.value && files.value.length > 0) {
+            const file = files.value[0];
+            console.log('Selected OneDrive file:', file);
+
+            toaster.create({
+              title: "Downloading...",
+              description: `Getting ${file.name} from OneDrive`,
+              type: "info",
+              duration: 2000,
+            });
+
+            setIsUploading(true);
+
+            try {
+              const response = await fetch('/api/onedrive-download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  downloadUrl: file["@microsoft.graph.downloadUrl"],
+                  fileName: file.name,
+                  mimeType: file.file?.mimeType || 'application/octet-stream',
+                  accessToken: files.accessToken,
+                  sessionId: sessionId,
+                }),
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to process file');
+              }
+
+              const result = await response.json();
+
+              // Add to uploaded files
+              setUploadedFiles([...uploadedFiles, {
+                id: result.fileId,
+                name: file.name,
+                chunks: result.chunks,
+                type: 'onedrive',
+                isPdf: result.isPdf,
+                pdfData: result.pdfData,
+              }]);
+
+              toaster.create({
+                title: "File Added",
+                description: `${file.name} (${result.chunks} chunks)`,
+                type: "success",
+                duration: 3000,
+              });
+
+              setShowUploadInterface(false);
+            } catch (error) {
+              console.error('OneDrive download error:', error);
+              toaster.create({
+                title: "Import Failed",
+                description: error.message || "Could not import file from OneDrive",
+                type: "error",
+                duration: 5000,
+              });
+            } finally {
+              setIsUploading(false);
+            }
+          }
+          setIsLoadingOneDrive(false);
+        },
+        cancel: () => {
+          console.log('OneDrive picker cancelled');
+          setIsLoadingOneDrive(false);
+        },
+        error: (error) => {
+          console.error('OneDrive picker error:', error);
+          toaster.create({
+            title: "Error",
+            description: "Failed to open OneDrive picker",
+            type: "error",
+            duration: 5000,
+          });
+          setIsLoadingOneDrive(false);
+        },
+      };
+
+      window.OneDrive.open(options);
+    } catch (error) {
+      console.error('OneDrive Picker error:', error);
+      toaster.create({
+        title: "OneDrive Unavailable",
+        description: "OneDrive integration requires configuration. Please contact support.",
+        type: "warning",
+        duration: 5000,
+      });
+      setIsLoadingOneDrive(false);
     }
   }, [sessionId, uploadedFiles]);
 
@@ -353,6 +493,14 @@ export default function Chat() {
                 const parts = f.name.split('||');
                 name = parts[0];
                 url = parts[1];
+              } else if (f.type === 'google-drive' && f.name?.includes('||')) {
+                // Google Drive files: "filename||gdrive:fileId"
+                const parts = f.name.split('||');
+                name = parts[0];
+              } else if (f.type === 'onedrive' && f.name?.includes('||')) {
+                // OneDrive files: "filename||onedrive:fileId"
+                const parts = f.name.split('||');
+                name = parts[0];
               }
 
               return {
@@ -1382,12 +1530,11 @@ export default function Chat() {
           <Popover.Content
             maxW="400px"
             bg="white"
-            _dark={{ bg: "gray.800" }}
+            _dark={{ bg: "gray.800", borderColor: "gray.700" }}
             boxShadow="lg"
             borderRadius="lg"
             border="1px solid"
             borderColor="gray.200"
-            _dark={{ borderColor: "gray.700" }}
             p={0}
             overflow="hidden"
             onMouseEnter={() => setIsOpen(true)}
@@ -1461,9 +1608,9 @@ export default function Chat() {
                       }
                     }}
                     fontSize="xs"
-                    color="blue.600"
-                    _hover={{ bg: "blue.50" }}
-                    _dark={{ color: "blue.400", _hover: { bg: "blue.900" } }}
+                    color="#4F46E5"
+                    _hover={{ bg: "#EEF2FF" }}
+                    _dark={{ color: "#818CF8", _hover: { bg: "#312E81" } }}
                     leftIcon={<FiExternalLink size={12} />}
                   >
                     Open PDF
@@ -1573,8 +1720,12 @@ export default function Chat() {
         // Add clean, modern citation
         const citationNum = parseInt(match[1]);
 
-        // Match by order in text, not by ID (multiple citations can have same ID)
-        const citation = messageCitations[citationIndex];
+        // Try to find citation by ID first, then fall back to index
+        // This ensures citations work properly when reloading from database
+        let citation = messageCitations.find(c => c.id === citationNum || c.actualChunkId === citationNum);
+        if (!citation && messageCitations[citationIndex]) {
+          citation = messageCitations[citationIndex];
+        }
         citationIndex++;
 
         /* Old click-based citation
@@ -1795,7 +1946,7 @@ export default function Chat() {
 
     // Save user message to Supabase
     try {
-      await fetch('/api/messages', {
+      const saveResponse = await fetch('/api/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1807,6 +1958,19 @@ export default function Chat() {
           citations: null,
         }),
       });
+      if (!saveResponse.ok) {
+        const errorData = await saveResponse.json().catch(() => ({}));
+        console.error('Error saving user message:', saveResponse.status, errorData);
+        // If session not found, show a warning to user
+        if (saveResponse.status === 404) {
+          toaster.create({
+            title: "Session Error",
+            description: "Could not save message - session not found. Please refresh and try again.",
+            type: "warning",
+            duration: 5000,
+          });
+        }
+      }
     } catch (error) {
       console.error('Error saving user message to Supabase:', error);
     }
@@ -1892,7 +2056,7 @@ export default function Chat() {
 
       // Save assistant message to Supabase
       try {
-        await fetch('/api/messages', {
+        const saveAssistantResponse = await fetch('/api/messages', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1904,6 +2068,10 @@ export default function Chat() {
             citations: data.citations || null,
           }),
         });
+        if (!saveAssistantResponse.ok) {
+          const errorData = await saveAssistantResponse.json().catch(() => ({}));
+          console.error('Error saving assistant message:', saveAssistantResponse.status, errorData);
+        }
       } catch (error) {
         console.error('Error saving assistant message to Supabase:', error);
       }
@@ -1935,97 +2103,24 @@ export default function Chat() {
         <meta name="description" content="Chat with Researchella AI" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="true" />
-        <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Kalam:wght@400;700&display=swap" rel="stylesheet" />
-        <style>{`
-          .retro-newspaper-bg {
-            background:
-              radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-              radial-gradient(circle, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-              repeating-linear-gradient(
-                0deg,
-                transparent,
-                transparent 2px,
-                rgba(139, 58, 26, 0.01) 2px,
-                rgba(139, 58, 26, 0.01) 4px
-              ),
-              repeating-linear-gradient(
-                90deg,
-                transparent,
-                transparent 2px,
-                rgba(139, 58, 26, 0.01) 2px,
-                rgba(139, 58, 26, 0.01) 4px
-              ),
-              #F5E6D3;
-            background-size:
-              20px 20px,
-              20px 20px,
-              100% 100%,
-              100% 100%,
-              100% 100%;
-            background-position:
-              0 0,
-              10px 10px,
-              0 0,
-              0 0,
-              0 0;
-          }
-
-          .retro-heading {
-            font-family: 'Righteous', cursive;
-            color: #8B3A1A;
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
-          }
-
-          .retro-text {
-            font-family: 'Kalam', cursive;
-            color: #8B3A1A;
-          }
-
-          .retro-card {
-            background: rgba(255, 244, 230, 0.9);
-            border: 3px solid #8B3A1A;
-            border-radius: 12px;
-          }
-
-          .retro-button {
-            border: 3px solid #8B3A1A;
-            border-radius: 50px;
-            background: #BF572A;
-            color: #FFF4E6;
-            font-family: 'Righteous', cursive;
-            box-shadow: 4px 4px 0px #8B3A1A;
-            transition: all 0.2s;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-          }
-
-          .retro-button:hover {
-            transform: translate(2px, 2px);
-            box-shadow: 2px 2px 0px #8B3A1A;
-          }
-        `}</style>
       </Head>
 
       <Flex
         h="100vh"
         overflow="hidden"
         position="relative"
-        bg={customTheme === "retro" ? "#F5E6D3" : "gray.50"}
-        _dark={{ bg: customTheme === "retro" ? "#F5E6D3" : "gray.950" }}
-        className={customTheme === "retro" ? "retro-newspaper-bg" : ""}
+        bg="gray.50"
+        _dark={{ bg: "gray.950" }}
       >
         {/* LEFT PANEL: Sources Sidebar (NotebookLM style) */}
         {showSourcesPanel ? (
         <Box
           w="320px"
           minW="320px"
-          bg={customTheme === "retro" ? "rgba(255, 244, 230, 0.9)" : "white"}
-          _dark={{ bg: customTheme === "retro" ? "rgba(255, 244, 230, 0.9)" : "gray.900", borderColor: customTheme === "retro" ? "#8B3A1A" : "gray.800" }}
+          bg="white"
+          _dark={{ bg: "gray.900", borderColor: "gray.800" }}
           borderRightWidth="1px"
-          borderColor={customTheme === "retro" ? "#8B3A1A" : "gray.100"}
+          borderColor="gray.100"
           display={{ base: "none", lg: "block" }}
           overflowY="auto"
           css={{
@@ -2103,7 +2198,7 @@ export default function Chat() {
                   _dark={{ bg: "gray.800", borderColor: "gray.700" }}
                   borderColor="gray.200"
                   _hover={{ borderColor: "gray.300", _dark: { borderColor: "gray.600" } }}
-                  _focus={{ borderColor: "blue.500", boxShadow: "0 0 0 1px var(--chakra-colors-blue-500)" }}
+                  _focus={{ borderColor: "#EEF2FF0", boxShadow: "0 0 0 1px var(--chakra-colors-blue-500)" }}
                   pl={9}
                   pr={webSearchQuery ? 20 : 3}
                   fontSize="sm"
@@ -2142,7 +2237,7 @@ export default function Chat() {
               {/* Web Search Results */}
               {isSearchingWeb && (
                 <Box p={4} textAlign="center">
-                  <Spinner size="sm" color="blue.500" />
+                  <Spinner size="sm" color="#EEF2FF0" />
                   <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} mt={2}>
                     Searching the web...
                   </Text>
@@ -2165,7 +2260,7 @@ export default function Chat() {
                       borderColor="gray.200"
                       _dark={{ borderColor: "gray.700" }}
                       transition="all 0.2s"
-                      _hover={{ borderColor: "blue.400", shadow: "sm" }}
+                      _hover={{ borderColor: "#818CF8", shadow: "sm" }}
                     >
                       <VStack align="start" gap={2}>
                         <VStack align="start" gap={0}>
@@ -2175,7 +2270,7 @@ export default function Chat() {
                           <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} noOfLines={2}>
                             {result.snippet}
                           </Text>
-                          <Text fontSize="xs" color="blue.600" _dark={{ color: "blue.400" }} noOfLines={1}>
+                          <Text fontSize="xs" color="#4F46E5" _dark={{ color: "#818CF8" }} noOfLines={1}>
                             {result.url}
                           </Text>
                         </VStack>
@@ -2227,18 +2322,17 @@ export default function Chat() {
                       p={3}
                       borderRadius="lg"
                       bg="gray.50"
-                      _dark={{ bg: "gray.800" }}
+                      _dark={{ bg: "gray.800", borderColor: selectedSources.includes(idx) ? "#818CF8" : "gray.700" }}
                       border="1px solid"
-                      borderColor={selectedSources.includes(idx) ? "blue.500" : "gray.100"}
-                      _dark={{ borderColor: selectedSources.includes(idx) ? "blue.400" : "gray.700" }}
+                      borderColor={selectedSources.includes(idx) ? "#818CF8" : "gray.100"}
                       position="relative"
                       cursor="pointer"
                       transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                       _hover={{
-                        borderColor: "blue.400",
+                        borderColor: "#818CF8",
                         transform: "translateY(-1px)",
                         shadow: "sm",
-                        _dark: { borderColor: "blue.500" }
+                        _dark: { borderColor: "#A5B4FC" }
                       }}
                       onClick={() => {
                         if (selectedSources.includes(idx)) {
@@ -2256,9 +2350,9 @@ export default function Chat() {
                             h="18px"
                             borderRadius="sm"
                             border="2px solid"
-                            borderColor={selectedSources.includes(idx) ? "blue.500" : "gray.300"}
-                            _dark={{ borderColor: selectedSources.includes(idx) ? "blue.400" : "gray.500" }}
-                            bg={selectedSources.includes(idx) ? "blue.500" : "transparent"}
+                            borderColor={selectedSources.includes(idx) ? "#EEF2FF0" : "gray.300"}
+                            _dark={{ borderColor: selectedSources.includes(idx) ? "#818CF8" : "gray.500" }}
+                            bg={selectedSources.includes(idx) ? "#EEF2FF0" : "transparent"}
                             display="flex"
                             alignItems="center"
                             justifyContent="center"
@@ -2272,8 +2366,8 @@ export default function Chat() {
                           </Box>
                           <Box
                             p={2}
-                            bg={file.type === 'youtube' ? "red.50" : "blue.50"}
-                            _dark={{ bg: file.type === 'youtube' ? "red.900" : "blue.900" }}
+                            bg={file.type === 'youtube' ? "red.50" : "#EEF2FF"}
+                            _dark={{ bg: file.type === 'youtube' ? "red.900" : "#312E81" }}
                             borderRadius="md"
                             flexShrink={0}
                           >
@@ -2299,7 +2393,7 @@ export default function Chat() {
                                     window.open(file.url, '_blank');
                                   }}
                                   color="gray.500"
-                                  _hover={{ color: "blue.500" }}
+                                  _hover={{ color: "#EEF2FF0" }}
                                   minW="auto"
                                   h="auto"
                                   p={0}
@@ -2383,8 +2477,8 @@ export default function Chat() {
                                 <HStack key={i} gap={2} align="start">
                                   <Text
                                     fontSize="xs"
-                                    color="blue.500"
-                                    _dark={{ color: "blue.300" }}
+                                    color="#EEF2FF0"
+                                    _dark={{ color: "#A5B4FC" }}
                                     fontFamily="mono"
                                     minW="40px"
                                     flexShrink={0}
@@ -2506,7 +2600,7 @@ export default function Chat() {
                   ) : (
                     <VStack gap={2} align="stretch">
                       {uploadedFiles.map((file, index) => (
-                        <HStack key={index} gap={2} p={2} borderRadius="md" bg="gray.50" _dark={{ bg: "gray.700" }} position="relative" role="group">
+                        <HStack key={index} gap={2} p={2} borderRadius="md" bg="gray.50" _dark={{ bg: "gray.800", borderColor: "gray.700" }} border="1px solid" borderColor="transparent" position="relative" role="group">
                           <FiFile size={16} />
                           <VStack align="start" gap={0} flex={1}>
                             <Text fontSize="sm" noOfLines={1}>
@@ -2560,9 +2654,8 @@ export default function Chat() {
             py={4}
             borderBottomWidth="1px"
             borderColor="gray.200"
-            _dark={{ borderColor: "gray.800" }}
             bg="white"
-            _dark={{ bg: "gray.900" }}
+            _dark={{ bg: "gray.900", borderColor: "gray.800" }}
             align="center"
             gap={4}
             shadow="sm"
@@ -2648,15 +2741,15 @@ export default function Chat() {
             <Box
               as="button"
               onClick={cycleTheme}
-              aria-label="Cycle theme (Light / Dark / Retro)"
+              aria-label="Toggle theme (Light / Dark)"
               fontSize="20px"
-              color={customTheme === "retro" ? "#8B3A1A" : "gray.600"}
-              _dark={{ color: customTheme === "retro" ? "#8B3A1A" : "gray.400" }}
+              color="gray.600"
+              _dark={{ color: "gray.400" }}
               cursor="pointer"
               transition="color 0.2s"
               _hover={{
-                color: customTheme === "retro" ? "#BF572A" : "gray.900",
-                _dark: { color: customTheme === "retro" ? "#BF572A" : "gray.100" }
+                color: "gray.900",
+                _dark: { color: "gray.100" }
               }}
               display="flex"
               alignItems="center"
@@ -2668,10 +2761,8 @@ export default function Chat() {
                 <FiSun />
               ) : customTheme === "light" ? (
                 <FiSun />
-              ) : customTheme === "dark" ? (
-                <FiMoon />
               ) : (
-                <FiFileText />
+                <FiMoon />
               )}
             </Box>
           </Flex>
@@ -2681,8 +2772,8 @@ export default function Chat() {
             flex={1}
             overflowY="auto"
             p={6}
-            bg={customTheme === "retro" ? "transparent" : "gray.50"}
-            _dark={{ bg: customTheme === "retro" ? "transparent" : "gray.950" }}
+            bg="gray.50"
+            _dark={{ bg: "gray.950" }}
           >
             <Container maxW="container.lg">
               {messages.length === 0 ? (
@@ -2694,17 +2785,16 @@ export default function Chat() {
                         w="full"
                         maxW="700px"
                         bg="white"
-                        _dark={{ bg: "gray.900" }}
+                        _dark={{ bg: "gray.800", borderColor: "gray.700" }}
                         borderRadius="xl"
                         border="1px solid"
                         borderColor="gray.200"
-                        _dark_borderColor="gray.700"
                         p={8}
                         shadow="lg"
                       >
                         {/* Header */}
                         <VStack gap={1} align="center" mb={6}>
-                          <Heading size="lg" fontWeight="600" textAlign="center">
+                          <Heading size="lg" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
                             Add Sources
                           </Heading>
                           <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
@@ -2722,17 +2812,16 @@ export default function Chat() {
                           p={10}
                           mb={6}
                           border="2px dashed"
-                          borderColor={isUploading ? "blue.400" : "gray.300"}
-                          _dark={{ borderColor: isUploading ? "blue.400" : "gray.600" }}
+                          borderColor={isUploading ? "#818CF8" : "gray.300"}
+                          _dark={{ borderColor: isUploading ? "#A5B4FC" : "#6366F1", bg: "gray.800" }}
                           borderRadius="lg"
                           textAlign="center"
                           transition="all 0.2s"
                           bg="gray.50"
-                          _dark_bg="gray.800"
                           _hover={{
-                            borderColor: "blue.400",
+                            borderColor: "#818CF8",
                             bg: "gray.100",
-                            _dark: { bg: "gray.750" }
+                            _dark: { bg: "gray.700", borderColor: "#A5B4FC" }
                           }}
                           opacity={isUploading ? 0.7 : 1}
                         >
@@ -2741,28 +2830,28 @@ export default function Chat() {
                               w="48px"
                               h="48px"
                               borderRadius="full"
-                              bg="blue.100"
-                              _dark={{ bg: "blue.900" }}
+                              bg="#E0E7FF"
+                              _dark={{ bg: "#4338CA" }}
                               display="flex"
                               alignItems="center"
                               justifyContent="center"
                             >
                               {isUploading ? (
-                                <Spinner size="md" color="blue.500" />
+                                <Spinner size="md" color="#4F46E5" _dark={{ color: "#E0E7FF" }} />
                               ) : (
-                                <Box color="blue.500" fontSize="xl">
+                                <Box color="#4F46E5" _dark={{ color: "#E0E7FF" }} fontSize="xl">
                                   <FiUpload />
                                 </Box>
                               )}
                             </Box>
-                            <Text fontWeight="600" fontSize="md">
+                            <Text fontWeight="600" fontSize="md" _dark={{ color: "white" }}>
                               {isUploading ? "Uploading..." : "Upload sources"}
                             </Text>
-                            <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }}>
+                            <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.300" }}>
                               {isUploading ? (
                                 "Processing document..."
                               ) : (
-                                <>Drag & drop or <Text as="span" color="blue.500" textDecoration="underline">choose file</Text> to upload</>
+                                <>Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} textDecoration="underline">choose file</Text> to upload</>
                               )}
                             </Text>
                             <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} mt={2}>
@@ -2781,36 +2870,35 @@ export default function Chat() {
                         />
 
                         {/* Source Type Cards */}
-                        <HStack gap={4} w="full">
+                        <SimpleGrid columns={4} gap={4} w="full">
                           {/* Google Workspace Card */}
                           <Box
                             flex={1}
                             p={4}
+                            minH="88px"
                             bg="gray.50"
-                            _dark={{ bg: "gray.800" }}
+                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
                             borderRadius="lg"
                             border="1px solid"
                             borderColor="gray.200"
-                            _dark_borderColor="gray.700"
                             cursor={isLoadingGoogleDrive ? "wait" : "pointer"}
                             transition="all 0.2s"
-                            _hover={{ bg: "gray.100", _dark: { bg: "gray.700" } }}
+                            _hover={{ bg: "gray.100", _dark: { bg: "gray.600" } }}
                             onClick={handleGoogleDrivePicker}
                             opacity={isLoadingGoogleDrive ? 0.7 : 1}
                           >
                             <HStack gap={2} mb={3}>
-                              {isLoadingGoogleDrive ? <Spinner size="sm" color="#4285F4" /> : <SiGoogledrive color="#4285F4" />}
-                              <Text fontWeight="500" fontSize="sm">Google Workspace</Text>
+                              {isLoadingGoogleDrive ? <Spinner size="sm" color="#4F46E5" /> : <SiGoogledrive color="#4F46E5" />}
+                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Google Workspace</Text>
                             </HStack>
                             <HStack gap={2} flexWrap="wrap">
                               <Box
                                 as="span"
                                 px={3}
                                 py={1}
-                                bg="blue.100"
-                                _dark={{ bg: "blue.900" }}
-                                color="blue.600"
-                                _dark_color="blue.300"
+                                bg="#E0E7FF"
+                                _dark={{ bg: "#312E81", color: "#A5B4FC" }}
+                                color="#4F46E5"
                                 borderRadius="full"
                                 fontSize="xs"
                                 fontWeight="500"
@@ -2824,20 +2912,62 @@ export default function Chat() {
                             </HStack>
                           </Box>
 
+                          {/* OneDrive Card */}
+                          <Box
+                            flex={1}
+                            p={4}
+                            minH="88px"
+                            bg="gray.50"
+                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
+                            borderRadius="lg"
+                            border="1px solid"
+                            borderColor="gray.200"
+                            cursor={isLoadingOneDrive ? "wait" : "pointer"}
+                            transition="all 0.2s"
+                            _hover={{ bg: "gray.100", _dark: { bg: "gray.600" } }}
+                            onClick={handleOneDrivePicker}
+                            opacity={isLoadingOneDrive ? 0.7 : 1}
+                          >
+                            <HStack gap={2} mb={3}>
+                              {isLoadingOneDrive ? <Spinner size="sm" color="#4F46E5" /> : <FiCloud color="#4F46E5" />}
+                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>OneDrive</Text>
+                            </HStack>
+                            <HStack gap={2} flexWrap="wrap">
+                              <Box
+                                as="span"
+                                px={3}
+                                py={1}
+                                bg="#E0E7FF"
+                                _dark={{ bg: "#312E81", color: "#A5B4FC" }}
+                                color="#4F46E5"
+                                borderRadius="full"
+                                fontSize="xs"
+                                fontWeight="500"
+                                display="flex"
+                                alignItems="center"
+                                gap={1}
+                              >
+                                <FiCloud size={12} />
+                                Microsoft
+                              </Box>
+                            </HStack>
+                          </Box>
+
                           {/* Link Card */}
                           <Box
                             flex={1}
                             p={4}
+                            minH="88px"
                             bg="gray.50"
-                            _dark={{ bg: "gray.800" }}
+                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
                             borderRadius="lg"
                             border="1px solid"
                             borderColor="gray.200"
-                            _dark_borderColor="gray.700"
+                            transition="all 0.2s"
                           >
                             <HStack gap={2} mb={3}>
-                              <FiLink color="gray.500" />
-                              <Text fontWeight="500" fontSize="sm">Link</Text>
+                              <FiLink color="#4F46E5" />
+                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Link</Text>
                             </HStack>
                             <HStack gap={2} flexWrap="wrap">
                               <Box
@@ -2854,7 +2984,10 @@ export default function Chat() {
                                 gap={1}
                                 cursor="pointer"
                                 _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
-                                onClick={() => document.getElementById('url-input-field')?.focus()}
+                                onClick={() => {
+                                  setShowWebsiteInput(true);
+                                  setShowYoutubeInput(false);
+                                }}
                               >
                                 <FiGlobe size={12} />
                                 Website
@@ -2864,9 +2997,8 @@ export default function Chat() {
                                 px={3}
                                 py={1}
                                 bg="red.100"
-                                _dark={{ bg: "red.900" }}
+                                _dark={{ bg: "red.900", color: "red.300" }}
                                 color="red.600"
-                                _dark_color="red.300"
                                 borderRadius="full"
                                 fontSize="xs"
                                 fontWeight="500"
@@ -2875,7 +3007,10 @@ export default function Chat() {
                                 gap={1}
                                 cursor="pointer"
                                 _hover={{ bg: "red.200", _dark: { bg: "red.800" } }}
-                                onClick={() => document.getElementById('url-input-field')?.focus()}
+                                onClick={() => {
+                                  setShowYoutubeInput(true);
+                                  setShowWebsiteInput(false);
+                                }}
                               >
                                 <FiYoutube size={12} />
                                 YouTube
@@ -2887,128 +3022,41 @@ export default function Chat() {
                           <Box
                             flex={1}
                             p={4}
-                            bg={showPasteText ? "blue.50" : "gray.50"}
-                            _dark={{ bg: showPasteText ? "blue.900" : "gray.800" }}
+                            minH="88px"
+                            bg="gray.50"
+                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
                             borderRadius="lg"
                             border="1px solid"
-                            borderColor={showPasteText ? "blue.400" : "gray.200"}
-                            _dark_borderColor={showPasteText ? "blue.400" : "gray.700"}
-                            cursor="pointer"
+                            borderColor="gray.200"
                             transition="all 0.2s"
-                            onClick={() => setShowPasteText(!showPasteText)}
                           >
                             <HStack gap={2} mb={3}>
-                              <FiFileText color={showPasteText ? "blue.500" : "gray.500"} />
-                              <Text fontWeight="500" fontSize="sm">Paste text</Text>
+                              <FiFileText color="#4F46E5" />
+                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Paste text</Text>
                             </HStack>
                             <HStack gap={2}>
                               <Box
                                 as="span"
                                 px={3}
                                 py={1}
-                                bg={showPasteText ? "blue.100" : "gray.200"}
-                                _dark={{ bg: showPasteText ? "blue.800" : "gray.700" }}
+                                bg="gray.200"
+                                _dark={{ bg: "gray.700" }}
                                 borderRadius="full"
                                 fontSize="xs"
                                 fontWeight="500"
                                 display="flex"
                                 alignItems="center"
                                 gap={1}
+                                cursor="pointer"
+                                _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
+                                onClick={() => setShowPasteText(true)}
                               >
                                 <FiFile size={12} />
                                 Copied text
                               </Box>
                             </HStack>
                           </Box>
-                        </HStack>
-
-                        {/* URL Input */}
-                        <Box mt={6} pt={6} borderTop="1px solid" borderColor="gray.200" _dark={{ borderColor: "gray.700" }}>
-                          <HStack gap={2}>
-                            <Box
-                              flex={1}
-                              position="relative"
-                            >
-                              <Input
-                                id="url-input-field"
-                                placeholder="Paste a URL (YouTube, arXiv, PubMed, or any website)..."
-                                value={urlInput}
-                                onChange={(e) => setUrlInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && !isUploading) {
-                                    handleUrlSubmit();
-                                  }
-                                }}
-                                size="md"
-                                bg="white"
-                                _dark={{ bg: "gray.800" }}
-                                border="1px solid"
-                                borderColor="gray.300"
-                                _dark_borderColor="gray.600"
-                                borderRadius="lg"
-                                _focus={{ borderColor: "blue.400", boxShadow: "none" }}
-                                disabled={isUploading}
-                              />
-                            </Box>
-                            <Button
-                              bg="black"
-                              color="white"
-                              _dark={{ bg: "white", color: "black" }}
-                              _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
-                              onClick={handleUrlSubmit}
-                              loading={isUploading}
-                              disabled={!urlInput.trim() || isUploading}
-                              borderRadius="lg"
-                              px={6}
-                            >
-                              Add
-                            </Button>
-                          </HStack>
-                        </Box>
-
-                        {/* Paste Text Input */}
-                        {showPasteText && (
-                          <Box mt={4} pt={4} borderTop="1px solid" borderColor="gray.200" _dark={{ borderColor: "gray.700" }}>
-                            <VStack gap={3} align="stretch">
-                              <Textarea
-                                id="paste-text-field"
-                                placeholder="Paste your text here (research notes, articles, documentation, etc.)..."
-                                value={pasteTextInput}
-                                onChange={(e) => setPasteTextInput(e.target.value)}
-                                size="md"
-                                bg="white"
-                                _dark={{ bg: "gray.800" }}
-                                border="1px solid"
-                                borderColor="gray.300"
-                                _dark_borderColor="gray.600"
-                                borderRadius="lg"
-                                _focus={{ borderColor: "blue.400", boxShadow: "none" }}
-                                disabled={isUploading}
-                                minH="120px"
-                                resize="vertical"
-                              />
-                              <HStack justify="space-between">
-                                <Text fontSize="xs" color="gray.500">
-                                  {pasteTextInput.length > 0 ? `${pasteTextInput.length} characters` : "Paste or type your text"}
-                                </Text>
-                                <Button
-                                  bg="black"
-                                  color="white"
-                                  _dark={{ bg: "white", color: "black" }}
-                                  _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
-                                  onClick={handlePasteTextSubmit}
-                                  loading={isUploading}
-                                  disabled={!pasteTextInput.trim() || isUploading}
-                                  borderRadius="lg"
-                                  px={6}
-                                  size="sm"
-                                >
-                                  Add Text
-                                </Button>
-                              </HStack>
-                            </VStack>
-                          </Box>
-                        )}
+                        </SimpleGrid>
                       </Box>
                     </>
                   ) : (
@@ -3031,7 +3079,7 @@ export default function Chat() {
                             variant="outline"
                             cursor="pointer"
                             _hover={{
-                              borderColor: "blue.500",
+                              borderColor: "#EEF2FF0",
                               transform: "translateY(-2px)",
                               shadow: "md",
                             }}
@@ -3303,10 +3351,9 @@ export default function Chat() {
                       overflow="auto"
                       w="100%"
                       bg="white"
-                      _dark={{ bg: "gray.800" }}
+                      _dark={{ bg: "gray.800", borderColor: "gray.600", color: "gray.100" }}
                       border="1px solid"
                       borderColor="gray.300"
-                      _dark={{ borderColor: "gray.700" }}
                       borderRadius="xl"
                       px={4}
                       py={3}
@@ -3314,7 +3361,7 @@ export default function Chat() {
                       _focus={{
                         outline: "none",
                         borderColor: "gray.400",
-                        _dark: { borderColor: "gray.600" }
+                        _dark: { borderColor: "gray.500" }
                       }}
                       _placeholder={{
                         color: "gray.400",
@@ -3369,13 +3416,13 @@ export default function Chat() {
                             px={3}
                             py={2}
                             cursor="pointer"
-                            bg={idx === autocompleteIndex ? "blue.50" : "transparent"}
+                            bg={idx === autocompleteIndex ? "#EEF2FF" : "transparent"}
                             _dark={{
-                              bg: idx === autocompleteIndex ? "blue.900" : "transparent"
+                              bg: idx === autocompleteIndex ? "#312E81" : "transparent"
                             }}
                             _hover={{
-                              bg: "blue.50",
-                              _dark: { bg: "blue.900" }
+                              bg: "#EEF2FF",
+                              _dark: { bg: "#312E81" }
                             }}
                             onClick={() => insertMention(file)}
                             onMouseEnter={() => setAutocompleteIndex(idx)}
@@ -3451,7 +3498,7 @@ export default function Chat() {
                         onClick={() => sendMessage("What are the main findings?")}
                         borderRadius="full"
                         px={3}
-                        _hover={{ bg: "blue.50", borderColor: "blue.400", _dark: { bg: "blue.900" } }}
+                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
                       >
                         What are the main findings?
                       </Button>
@@ -3461,7 +3508,7 @@ export default function Chat() {
                         onClick={() => sendMessage("Summarize the key points")}
                         borderRadius="full"
                         px={3}
-                        _hover={{ bg: "blue.50", borderColor: "blue.400", _dark: { bg: "blue.900" } }}
+                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
                       >
                         Summarize the key points
                       </Button>
@@ -3471,7 +3518,7 @@ export default function Chat() {
                         onClick={() => sendMessage("What methodology was used?")}
                         borderRadius="full"
                         px={3}
-                        _hover={{ bg: "blue.50", borderColor: "blue.400", _dark: { bg: "blue.900" } }}
+                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
                       >
                         What methodology was used?
                       </Button>
@@ -3481,7 +3528,7 @@ export default function Chat() {
                         onClick={() => sendMessage("What are the conclusions?")}
                         borderRadius="full"
                         px={3}
-                        _hover={{ bg: "blue.50", borderColor: "blue.400", _dark: { bg: "blue.900" } }}
+                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
                       >
                         What are the conclusions?
                       </Button>
@@ -3501,7 +3548,7 @@ export default function Chat() {
                       fontSize="xs"
                       color="gray.600"
                       _dark={{ color: "gray.400" }}
-                      _hover={{ bg: "blue.50", color: "blue.600", _dark: { bg: "blue.900", color: "blue.300" } }}
+                      _hover={{ bg: "#EEF2FF", color: "#4F46E5", _dark: { bg: "#312E81", color: "#A5B4FC" } }}
                     >
                       Tell me more
                     </Button>
@@ -3514,7 +3561,7 @@ export default function Chat() {
                       fontSize="xs"
                       color="gray.600"
                       _dark={{ color: "gray.400" }}
-                      _hover={{ bg: "blue.50", color: "blue.600", _dark: { bg: "blue.900", color: "blue.300" } }}
+                      _hover={{ bg: "#EEF2FF", color: "#4F46E5", _dark: { bg: "#312E81", color: "#A5B4FC" } }}
                     >
                       Explain differently
                     </Button>
@@ -3527,7 +3574,7 @@ export default function Chat() {
                       fontSize="xs"
                       color="gray.600"
                       _dark={{ color: "gray.400" }}
-                      _hover={{ bg: "blue.50", color: "blue.600", _dark: { bg: "blue.900", color: "blue.300" } }}
+                      _hover={{ bg: "#EEF2FF", color: "#4F46E5", _dark: { bg: "#312E81", color: "#A5B4FC" } }}
                     >
                       What are the implications?
                     </Button>
@@ -3605,11 +3652,11 @@ export default function Chat() {
                 bg="gray.50"
                 transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                 _hover={{
-                  bg: "blue.50",
-                  borderColor: "blue.500",
+                  bg: "#EEF2FF",
+                  borderColor: "#EEF2FF0",
                   transform: "translateY(-2px)",
                   shadow: "md",
-                  _dark: { bg: "blue.900", borderColor: "blue.400" },
+                  _dark: { bg: "#312E81", borderColor: "#818CF8" },
                 }}
                 _active={{
                   transform: "translateY(0)",
@@ -3642,11 +3689,11 @@ export default function Chat() {
                 bg="gray.50"
                 transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                 _hover={{
-                  bg: "blue.50",
-                  borderColor: "blue.500",
+                  bg: "#EEF2FF",
+                  borderColor: "#EEF2FF0",
                   transform: "translateY(-2px)",
                   shadow: "md",
-                  _dark: { bg: "blue.900", borderColor: "blue.400" },
+                  _dark: { bg: "#312E81", borderColor: "#818CF8" },
                 }}
                 _active={{
                   transform: "translateY(0)",
@@ -3679,11 +3726,11 @@ export default function Chat() {
                 bg="gray.50"
                 transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                 _hover={{
-                  bg: "blue.50",
-                  borderColor: "blue.500",
+                  bg: "#EEF2FF",
+                  borderColor: "#EEF2FF0",
                   transform: "translateY(-2px)",
                   shadow: "md",
-                  _dark: { bg: "blue.900", borderColor: "blue.400" },
+                  _dark: { bg: "#312E81", borderColor: "#818CF8" },
                 }}
                 _active={{
                   transform: "translateY(0)",
@@ -3738,7 +3785,7 @@ export default function Chat() {
                       _dark={{ borderColor: "gray.700" }}
                       borderRadius="lg"
                       transition="all 0.2s"
-                      _hover={{ borderColor: "blue.400", shadow: "sm" }}
+                      _hover={{ borderColor: "#818CF8", shadow: "sm" }}
                     >
                       <VStack gap={2} align="stretch">
                         <HStack justify="space-between">
@@ -3835,12 +3882,12 @@ export default function Chat() {
             {uploadedFiles.length === 0 && (
               <Box
                 p={3}
-                bg="blue.50"
-                _dark={{ bg: "blue.900", opacity: 0.3 }}
+                bg="#EEF2FF"
+                _dark={{ bg: "#312E81", opacity: 0.3 }}
                 borderRadius="md"
                 mt={2}
               >
-                <Text fontSize="xs" color="blue.700" _dark={{ color: "blue.300" }}>
+                <Text fontSize="xs" color="#4338CA" _dark={{ color: "#A5B4FC" }}>
                   💡 Add sources to unlock Studio features
                 </Text>
               </Box>
@@ -3964,13 +4011,13 @@ export default function Chat() {
                         key={idx}
                         mb={4}
                         p={4}
-                        bg={isAlex ? "blue.50" : "purple.50"}
-                        _dark={{ bg: isAlex ? "blue.900" : "purple.900", opacity: 0.4 }}
+                        bg={isAlex ? "#EEF2FF" : "#EEF2FF"}
+                        _dark={{ bg: isAlex ? "#312E81" : "#312E81", opacity: 0.4 }}
                         borderRadius="lg"
                         borderLeft="4px solid"
-                        borderColor={isAlex ? "blue.400" : "purple.400"}
+                        borderColor={isAlex ? "#818CF8" : "#818CF8"}
                       >
-                        <Text fontWeight="700" fontSize="sm" color={isAlex ? "blue.600" : "purple.600"} _dark={{ color: isAlex ? "blue.300" : "purple.300" }} mb={2}>
+                        <Text fontWeight="700" fontSize="sm" color={isAlex ? "#4F46E5" : "#4F46E5"} _dark={{ color: isAlex ? "#A5B4FC" : "#A5B4FC" }} mb={2}>
                           {speaker}
                         </Text>
                         <Text fontSize="md" lineHeight="1.7" color="gray.800" _dark={{ color: "gray.200" }}>
@@ -4208,7 +4255,7 @@ export default function Chat() {
                                   : showResult && isSelected && !isCorrect
                                   ? "red.100"
                                   : isSelected
-                                  ? "blue.100"
+                                  ? "#E0E7FF"
                                   : "white"
                               }
                               _dark={{
@@ -4217,7 +4264,7 @@ export default function Chat() {
                                   : showResult && isSelected && !isCorrect
                                   ? "red.900"
                                   : isSelected
-                                  ? "blue.900"
+                                  ? "#312E81"
                                   : "gray.700",
                                 opacity: 0.8
                               }}
@@ -4228,7 +4275,7 @@ export default function Chat() {
                                   : showResult && isSelected && !isCorrect
                                   ? "red.500"
                                   : isSelected
-                                  ? "blue.500"
+                                  ? "#EEF2FF0"
                                   : "gray.300"
                               }
                               _dark={{
@@ -4237,7 +4284,7 @@ export default function Chat() {
                                   : showResult && isSelected && !isCorrect
                                   ? "red.500"
                                   : isSelected
-                                  ? "blue.500"
+                                  ? "#EEF2FF0"
                                   : "gray.600"
                               }}
                               cursor={showResult ? "default" : "pointer"}
@@ -4247,7 +4294,7 @@ export default function Chat() {
                                 }
                               }}
                               transition="all 0.15s ease"
-                              _hover={showResult ? {} : { borderColor: "blue.400" }}
+                              _hover={showResult ? {} : { borderColor: "#818CF8" }}
                             >
                               <Text fontSize="sm">
                                 {option}
@@ -4257,8 +4304,8 @@ export default function Chat() {
                         })}
                       </VStack>
                       {showQuizResults && q.explanation && (
-                        <Box mt={4} p={3} bg="blue.50" _dark={{ bg: "blue.900", opacity: 0.4 }} borderRadius="md">
-                          <Text fontSize="sm" fontWeight="600" color="blue.700" _dark={{ color: "blue.300" }} mb={1}>
+                        <Box mt={4} p={3} bg="#EEF2FF" _dark={{ bg: "#312E81", opacity: 0.4 }} borderRadius="md">
+                          <Text fontSize="sm" fontWeight="600" color="#4338CA" _dark={{ color: "#A5B4FC" }} mb={1}>
                             Explanation:
                           </Text>
                           <Text fontSize="sm" color="gray.700" _dark={{ color: "gray.300" }}>
@@ -4437,7 +4484,7 @@ export default function Chat() {
               _dark={{ bg: "gray.800" }}
             >
               <HStack gap={2}>
-                <Box w="3px" h="20px" bg="blue.500" borderRadius="full" />
+                <Box w="3px" h="20px" bg="#EEF2FF0" borderRadius="full" />
                 <VStack align="start" gap={0}>
                   <Text fontSize="sm" fontWeight="600" color="gray.800" _dark={{ color: "white" }} noOfLines={1}>
                     {selectedDocument.name}
@@ -4492,7 +4539,7 @@ export default function Chat() {
                     <Box p={4}>
                       {selectedDocument.isLoading ? (
                         <HStack gap={2}>
-                          <Spinner size="sm" color="blue.500" />
+                          <Spinner size="sm" color="#EEF2FF0" />
                           <Text fontSize="sm" color="gray.500">
                             Extracting relevant quote...
                           </Text>
@@ -4636,19 +4683,19 @@ export default function Chat() {
                   w="full"
                   p={10}
                   border="2px dashed"
-                  borderColor={isDragging ? "gray.900" : "gray.300"}
+                  borderColor={isDragging ? "#818CF8" : "gray.300"}
                   _dark={{
-                    borderColor: isDragging ? "white" : "gray.600"
+                    borderColor: isDragging ? "#A5B4FC" : "#6366F1",
+                    bg: isDragging ? "gray.700" : "gray.800"
                   }}
                   borderRadius="xl"
                   textAlign="center"
                   transition="all 0.2s ease"
                   bg={isDragging ? "gray.50" : "transparent"}
-                  _dark={{ bg: isDragging ? "gray.800" : "transparent" }}
                   _hover={{
-                    borderColor: "gray.900",
+                    borderColor: "#818CF8",
                     bg: "gray.50",
-                    _dark: { borderColor: "white", bg: "gray.800" }
+                    _dark: { borderColor: "#A5B4FC", bg: "gray.700" }
                   }}
                   opacity={isUploading ? 0.6 : 1}
                   onClick={() => {
@@ -4664,10 +4711,10 @@ export default function Chat() {
                   <VStack gap={3}>
                     <Box
                       fontSize="2xl"
-                      color="gray.900"
-                      _dark={{ color: "white" }}
+                      color="#4F46E5"
+                      _dark={{ color: "#A5B4FC" }}
                     >
-                      {isUploading ? <Spinner size="lg" color="gray.900" /> : <FiUpload />}
+                      {isUploading ? <Spinner size="lg" color="#4F46E5" _dark={{ color: "#A5B4FC" }} /> : <FiUpload />}
                     </Box>
                     <VStack gap={1}>
                       <Text fontWeight="500" color="gray.900" _dark={{ color: "white" }}>
@@ -4704,15 +4751,15 @@ export default function Chat() {
                 transition="all 0.2s ease"
                 opacity={isLoadingGoogleDrive ? 0.7 : 1}
                 _hover={{
-                  borderColor: "blue.400",
-                  bg: "blue.50",
-                  _dark: { borderColor: "blue.400", bg: "blue.900" }
+                  borderColor: "#818CF8",
+                  bg: "#EEF2FF",
+                  _dark: { borderColor: "#818CF8", bg: "#312E81" }
                 }}
                 onClick={handleGoogleDrivePicker}
               >
                 <HStack gap={3}>
-                  <Box color="#4285F4">
-                    {isLoadingGoogleDrive ? <Spinner size="sm" color="#4285F4" /> : <SiGoogledrive size={24} />}
+                  <Box color="#4F46E5">
+                    {isLoadingGoogleDrive ? <Spinner size="sm" color="#4F46E5" /> : <SiGoogledrive size={24} />}
                   </Box>
                   <VStack align="start" gap={0}>
                     <Text fontWeight="500" color="gray.900" _dark={{ color: "white" }}>
@@ -4720,6 +4767,39 @@ export default function Chat() {
                     </Text>
                     <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
                       {isLoadingGoogleDrive ? "Connecting..." : "Import from Google Drive"}
+                    </Text>
+                  </VStack>
+                </HStack>
+              </Box>
+
+              {/* OneDrive Option */}
+              <Box
+                w="full"
+                p={4}
+                border="1px solid"
+                borderColor="gray.200"
+                _dark={{ borderColor: "gray.700" }}
+                borderRadius="xl"
+                cursor={isLoadingOneDrive ? "wait" : "pointer"}
+                transition="all 0.2s ease"
+                opacity={isLoadingOneDrive ? 0.7 : 1}
+                _hover={{
+                  borderColor: "#818CF8",
+                  bg: "#EEF2FF",
+                  _dark: { borderColor: "#818CF8", bg: "#312E81" }
+                }}
+                onClick={handleOneDrivePicker}
+              >
+                <HStack gap={3}>
+                  <Box color="#4F46E5">
+                    {isLoadingOneDrive ? <Spinner size="sm" color="#4F46E5" /> : <FiCloud size={24} />}
+                  </Box>
+                  <VStack align="start" gap={0}>
+                    <Text fontWeight="500" color="gray.900" _dark={{ color: "white" }}>
+                      OneDrive
+                    </Text>
+                    <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                      {isLoadingOneDrive ? "Connecting..." : "Import from Microsoft OneDrive"}
                     </Text>
                   </VStack>
                 </HStack>
@@ -4858,6 +4938,322 @@ export default function Chat() {
             </Box>
           </Box>
         </>
+      )}
+
+      {/* Website URL Popup */}
+      {showWebsiteInput && (
+        <Box
+          position="fixed"
+          top={0}
+          left={0}
+          right={0}
+          bottom={0}
+          bg="blackAlpha.600"
+          _dark={{ bg: "blackAlpha.700" }}
+          zIndex={9999}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          onClick={() => {
+            setShowWebsiteInput(false);
+            setUrlInput("");
+          }}
+        >
+          <Box
+            bg="white"
+            _dark={{ bg: "gray.800", borderColor: "gray.700" }}
+            borderRadius="xl"
+            p={6}
+            w="400px"
+            maxW="90vw"
+            shadow="2xl"
+            border="1px solid"
+            borderColor="gray.200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <HStack mb={4}>
+              <FiGlobe size={20} color="#4F46E5" />
+              <Text fontWeight="600" _dark={{ color: "white" }}>Add Website</Text>
+              <Spacer />
+              <IconButton
+                size="sm"
+                variant="ghost"
+                _dark={{ color: "gray.400", _hover: { bg: "gray.700" } }}
+                onClick={() => {
+                  setShowWebsiteInput(false);
+                  setUrlInput("");
+                }}
+                aria-label="Close"
+              >
+                <FiX />
+              </IconButton>
+            </HStack>
+            <Input
+              placeholder="Paste website URL..."
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !isUploading && urlInput.trim()) {
+                  handleUrlSubmit();
+                  setShowWebsiteInput(false);
+                } else if (e.key === "Escape") {
+                  setShowWebsiteInput(false);
+                  setUrlInput("");
+                }
+              }}
+              bg="gray.50"
+              _dark={{ bg: "gray.700", borderColor: "gray.600", color: "gray.100" }}
+              border="1px solid"
+              borderColor="gray.200"
+              borderRadius="lg"
+              _focus={{ borderColor: "#818CF8", boxShadow: "none", _dark: { borderColor: "#A5B4FC" } }}
+              _placeholder={{ color: "gray.400", _dark: { color: "gray.500" } }}
+              disabled={isUploading}
+              autoFocus
+              mb={4}
+            />
+            <HStack justify="flex-end">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowWebsiteInput(false);
+                  setUrlInput("");
+                }}
+                size="sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                bg="black"
+                color="white"
+                _dark={{ bg: "white", color: "black" }}
+                _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
+                onClick={() => {
+                  handleUrlSubmit();
+                  setShowWebsiteInput(false);
+                }}
+                loading={isUploading}
+                disabled={!urlInput.trim() || isUploading}
+                borderRadius="lg"
+                size="sm"
+              >
+                Add
+              </Button>
+            </HStack>
+          </Box>
+        </Box>
+      )}
+
+      {/* YouTube URL Popup */}
+      {showYoutubeInput && (
+        <Box
+          position="fixed"
+          top={0}
+          left={0}
+          right={0}
+          bottom={0}
+          bg="blackAlpha.600"
+          _dark={{ bg: "blackAlpha.700" }}
+          zIndex={9999}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          onClick={() => {
+            setShowYoutubeInput(false);
+            setUrlInput("");
+          }}
+        >
+          <Box
+            bg="white"
+            _dark={{ bg: "gray.800", borderColor: "gray.700" }}
+            borderRadius="xl"
+            p={6}
+            w="400px"
+            maxW="90vw"
+            shadow="2xl"
+            border="1px solid"
+            borderColor="gray.200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <HStack mb={4}>
+              <FiYoutube size={20} color="#FF0000" />
+              <Text fontWeight="600" _dark={{ color: "white" }}>Add YouTube Video</Text>
+              <Spacer />
+              <IconButton
+                size="sm"
+                variant="ghost"
+                _dark={{ color: "gray.400", _hover: { bg: "gray.700" } }}
+                onClick={() => {
+                  setShowYoutubeInput(false);
+                  setUrlInput("");
+                }}
+                aria-label="Close"
+              >
+                <FiX />
+              </IconButton>
+            </HStack>
+            <Input
+              placeholder="Paste YouTube URL..."
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !isUploading && urlInput.trim()) {
+                  handleUrlSubmit();
+                  setShowYoutubeInput(false);
+                } else if (e.key === "Escape") {
+                  setShowYoutubeInput(false);
+                  setUrlInput("");
+                }
+              }}
+              bg="gray.50"
+              _dark={{ bg: "gray.700", borderColor: "gray.600", color: "gray.100" }}
+              border="1px solid"
+              borderColor="gray.200"
+              borderRadius="lg"
+              _focus={{ borderColor: "#818CF8", boxShadow: "none", _dark: { borderColor: "#A5B4FC" } }}
+              _placeholder={{ color: "gray.400", _dark: { color: "gray.500" } }}
+              disabled={isUploading}
+              autoFocus
+              mb={4}
+            />
+            <HStack justify="flex-end">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setShowYoutubeInput(false);
+                  setUrlInput("");
+                }}
+                size="sm"
+              >
+                Cancel
+              </Button>
+              <Button
+                bg="black"
+                color="white"
+                _dark={{ bg: "white", color: "black" }}
+                _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
+                onClick={() => {
+                  handleUrlSubmit();
+                  setShowYoutubeInput(false);
+                }}
+                loading={isUploading}
+                disabled={!urlInput.trim() || isUploading}
+                borderRadius="lg"
+                size="sm"
+              >
+                Add
+              </Button>
+            </HStack>
+          </Box>
+        </Box>
+      )}
+
+      {/* Paste Text Popup */}
+      {showPasteText && (
+        <Box
+          position="fixed"
+          top={0}
+          left={0}
+          right={0}
+          bottom={0}
+          bg="blackAlpha.600"
+          _dark={{ bg: "blackAlpha.700" }}
+          zIndex={9999}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          onClick={() => {
+            setShowPasteText(false);
+            setPasteTextInput("");
+          }}
+        >
+          <Box
+            bg="white"
+            _dark={{ bg: "gray.800", borderColor: "gray.700" }}
+            borderRadius="xl"
+            p={6}
+            w="500px"
+            maxW="90vw"
+            shadow="2xl"
+            border="1px solid"
+            borderColor="gray.200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <HStack mb={4}>
+              <FiFileText size={20} color="#4F46E5" />
+              <Text fontWeight="600" _dark={{ color: "white" }}>Paste Text</Text>
+              <Spacer />
+              <IconButton
+                size="sm"
+                variant="ghost"
+                _dark={{ color: "gray.400", _hover: { bg: "gray.700" } }}
+                onClick={() => {
+                  setShowPasteText(false);
+                  setPasteTextInput("");
+                }}
+                aria-label="Close"
+              >
+                <FiX />
+              </IconButton>
+            </HStack>
+            <Textarea
+              placeholder="Paste your text here..."
+              value={pasteTextInput}
+              onChange={(e) => setPasteTextInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setShowPasteText(false);
+                  setPasteTextInput("");
+                }
+              }}
+              bg="gray.50"
+              _dark={{ bg: "gray.700", borderColor: "gray.600", color: "gray.100" }}
+              border="1px solid"
+              borderColor="gray.200"
+              borderRadius="lg"
+              _focus={{ borderColor: "#818CF8", boxShadow: "none", _dark: { borderColor: "#A5B4FC" } }}
+              _placeholder={{ color: "gray.400", _dark: { color: "gray.500" } }}
+              disabled={isUploading}
+              autoFocus
+              minH="150px"
+              resize="vertical"
+              mb={4}
+            />
+            <HStack justify="space-between">
+              <Text fontSize="xs" color="gray.500">
+                {pasteTextInput.length > 0 ? `${pasteTextInput.length} characters` : ""}
+              </Text>
+              <HStack>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setShowPasteText(false);
+                    setPasteTextInput("");
+                  }}
+                  size="sm"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  bg="black"
+                  color="white"
+                  _dark={{ bg: "white", color: "black" }}
+                  _hover={{ bg: "gray.800", _dark: { bg: "gray.200" } }}
+                  onClick={() => {
+                    handlePasteTextSubmit();
+                    setShowPasteText(false);
+                  }}
+                  loading={isUploading}
+                  disabled={!pasteTextInput.trim() || isUploading}
+                  borderRadius="lg"
+                  size="sm"
+                >
+                  Add Text
+                </Button>
+              </HStack>
+            </HStack>
+          </Box>
+        </Box>
       )}
 
     </>

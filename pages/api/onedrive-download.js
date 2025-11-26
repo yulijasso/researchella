@@ -38,41 +38,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { fileId, fileName, mimeType, accessToken, sessionId } = req.body;
+    const { downloadUrl, fileName, mimeType, accessToken, sessionId } = req.body;
 
-    if (!fileId || !accessToken || !sessionId) {
-      return res.status(400).json({ error: 'File ID, access token, and session ID are required' });
+    if (!downloadUrl || !accessToken || !sessionId) {
+      return res.status(400).json({ error: 'Download URL, access token, and session ID are required' });
     }
 
-    console.log(`📥 Downloading file from Google Drive: ${fileName} (${mimeType})`);
+    console.log(`📥 Downloading file from OneDrive: ${fileName} (${mimeType})`);
 
-    // Determine the export URL based on mime type
-    let downloadUrl;
-    let exportMimeType = mimeType;
-    let isGoogleWorkspaceFile = false;
-
-    // Google Workspace files need to be exported to Office formats
-    if (mimeType === 'application/vnd.google-apps.document') {
-      // Google Docs -> export as docx
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document`;
-      exportMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      isGoogleWorkspaceFile = true;
-    } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      // Google Sheets -> export as xlsx
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
-      exportMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      isGoogleWorkspaceFile = true;
-    } else if (mimeType === 'application/vnd.google-apps.presentation') {
-      // Google Slides -> export as pptx
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation`;
-      exportMimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-      isGoogleWorkspaceFile = true;
-    } else {
-      // Regular files - direct download
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-    }
-
-    // Download the file from Google Drive
+    // Download the file from OneDrive
     const response = await fetch(downloadUrl, {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
@@ -81,9 +55,9 @@ export default async function handler(req, res) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Google Drive API error:', errorText);
+      console.error('OneDrive API error:', errorText);
       return res.status(400).json({
-        error: 'Failed to download file from Google Drive',
+        error: 'Failed to download file from OneDrive',
         details: errorText
       });
     }
@@ -100,9 +74,7 @@ export default async function handler(req, res) {
     }
 
     // Check if it's an Office/PDF file that officeParser can handle
-    const isOfficeFile = OFFICE_MIME_TYPES.includes(exportMimeType) ||
-                         OFFICE_MIME_TYPES.includes(mimeType) ||
-                         isGoogleWorkspaceFile ||
+    const isOfficeFile = OFFICE_MIME_TYPES.includes(mimeType) ||
                          fileName.match(/\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)$/i);
 
     if (isOfficeFile) {
@@ -166,8 +138,7 @@ export default async function handler(req, res) {
         content: chunk,
         metadata: {
           source: fileName,
-          type: 'google-drive',
-          fileId: fileId,
+          type: 'onedrive',
           mimeType: mimeType,
         }
       })),
@@ -179,8 +150,8 @@ export default async function handler(req, res) {
     const insertData = {
       user_id: userId,
       session_id: sessionId,
-      name: `${fileName}||gdrive:${fileId}`,
-      type: 'google-drive',
+      name: fileName,
+      type: 'onedrive',
       chunks: chunks.length,
     };
 
@@ -200,7 +171,7 @@ export default async function handler(req, res) {
       throw dbError;
     }
 
-    console.log(`✅ Successfully added Google Drive file: ${fileName}`);
+    console.log(`✅ Successfully added OneDrive file: ${fileName}`);
 
     return res.status(200).json({
       success: true,
@@ -208,13 +179,13 @@ export default async function handler(req, res) {
       fileId: fileData.id,
       fileName: fileName,
       isPdf: isPdf,
-      pdfData: pdfDataBase64, // Return PDF data for viewing
+      pdfData: pdfDataBase64,
     });
 
   } catch (error) {
-    console.error('Error downloading from Google Drive:', error);
+    console.error('Error downloading from OneDrive:', error);
     return res.status(500).json({
-      error: 'Failed to process Google Drive file',
+      error: 'Failed to process OneDrive file',
       details: error.message
     });
   }
