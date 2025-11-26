@@ -15,7 +15,8 @@ import {
   Icon,
   Grid,
 } from "@chakra-ui/react";
-import { FiPlus, FiMessageSquare, FiTrash2, FiArrowRight, FiFile, FiClock, FiAlertCircle, FiHome, FiEdit2, FiCheck, FiX } from "react-icons/fi";
+import { FiPlus, FiMessageSquare, FiTrash2, FiArrowRight, FiFile, FiClock, FiAlertCircle, FiHome, FiEdit2, FiCheck, FiX, FiSun, FiMoon } from "react-icons/fi";
+import { useColorMode } from "@/components/ui/color-mode";
 import { toaster } from "@/components/ui/toaster";
 import { useAuth } from "@/contexts/AuthContext";
 import UserButton from "@/components/UserButton";
@@ -45,6 +46,7 @@ const formatDate = (dateValue) => {
 export default function Sessions() {
   const router = useRouter();
   const { user, loading } = useAuth();
+  const { colorMode, toggleColorMode } = useColorMode();
   const isLoaded = !loading;
   const [sessions, setSessions] = useState([]);
   const [isCreating, setIsCreating] = useState(false);
@@ -239,7 +241,7 @@ export default function Sessions() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>
 
-      <Box bg="white" minH="100vh">
+      <Box bg="white" _dark={{ bg: "gray.900" }} minH="100vh">
         {/* Header */}
         <Flex
           px={6}
@@ -248,6 +250,7 @@ export default function Sessions() {
           gap={4}
           borderBottom="1px solid"
           borderColor="gray.200"
+          _dark={{ borderColor: "gray.700" }}
         >
           <Box cursor="pointer" onClick={() => router.push('/')}>
             <Image src="/logo.png" alt="Researchella" width={120} height={35} style={{ objectFit: "contain" }} />
@@ -256,15 +259,28 @@ export default function Sessions() {
             Dashboard
           </Text>
           <Box flex={1} />
-          <IconButton
-            variant="ghost"
-            color="gray.600"
-            _hover={{ color: "black", bg: "gray.100" }}
-            onClick={() => router.push('/')}
-            aria-label="Home"
-          >
-            <FiHome />
-          </IconButton>
+          <HStack gap={1}>
+            <IconButton
+              variant="ghost"
+              color="gray.600"
+              _hover={{ color: "black", bg: "gray.100" }}
+              _dark={{ color: "gray.400", _hover: { color: "white", bg: "gray.700" } }}
+              onClick={toggleColorMode}
+              aria-label="Toggle dark mode"
+            >
+              {colorMode === "light" ? <FiSun /> : <FiMoon />}
+            </IconButton>
+            <IconButton
+              variant="ghost"
+              color="gray.600"
+              _hover={{ color: "black", bg: "gray.100" }}
+              _dark={{ color: "gray.400", _hover: { color: "white", bg: "gray.700" } }}
+              onClick={() => router.push('/')}
+              aria-label="Home"
+            >
+              <FiHome />
+            </IconButton>
+          </HStack>
           <UserButton afterSignOutUrl="/" />
         </Flex>
 
@@ -273,10 +289,10 @@ export default function Sessions() {
           <VStack gap={8} align="stretch">
             {/* Header Section */}
             <VStack gap={2} align="start">
-              <Heading size="xl" color="black" fontWeight="600">
+              <Heading size="xl" color="black" _dark={{ color: "white" }} fontWeight="600">
                 Your Notebooks
               </Heading>
-              <Text color="gray.500" fontSize="md">
+              <Text color="gray.500" _dark={{ color: "gray.400" }} fontSize="md">
                 Create a new notebook or continue where you left off
               </Text>
             </VStack>
@@ -304,18 +320,25 @@ export default function Sessions() {
                     borderColor: "black",
                     bg: "gray.50",
                   }}
+                  _dark={{
+                    bg: "gray.800",
+                    borderColor: "gray.600",
+                    _hover: { borderColor: "white", bg: "gray.700" }
+                  }}
                   onClick={() => setIsCreating(true)}
                 >
                   <VStack gap={3}>
                     <Box
                       p={3}
                       bg="black"
+                      _dark={{ bg: "white" }}
                       borderRadius="full"
                     >
-                      <Icon as={FiPlus} boxSize={5} color="white" />
+                      <Icon as={FiPlus} boxSize={5} color="white" _dark={{ color: "black" }} />
                     </Box>
                     <Text
                       color="gray.700"
+                      _dark={{ color: "gray.300" }}
                       fontWeight="500"
                       fontSize="sm"
                     >
@@ -331,10 +354,11 @@ export default function Sessions() {
                   border="1px solid"
                   borderColor="black"
                   minH="180px"
+                  _dark={{ bg: "gray.800", borderColor: "white" }}
                 >
                   <VStack gap={4} align="stretch" h="full" justify="space-between">
                     <VStack gap={3} align="stretch">
-                      <Text size="sm" color="black" fontWeight="600">
+                      <Text size="sm" color="black" _dark={{ color: "white" }} fontWeight="600">
                         New Notebook
                       </Text>
                       <Input
@@ -355,6 +379,12 @@ export default function Sessions() {
                         color="black"
                         _placeholder={{ color: "gray.400" }}
                         _focus={{ borderColor: "black", boxShadow: "none" }}
+                        _dark={{
+                          bg: "gray.700",
+                          borderColor: "gray.600",
+                          color: "white",
+                          _focus: { borderColor: "white" }
+                        }}
                         borderRadius="md"
                         autoFocus
                       />
@@ -365,6 +395,7 @@ export default function Sessions() {
                         bg="black"
                         color="white"
                         _hover={{ bg: "gray.800" }}
+                        _dark={{ bg: "white", color: "black", _hover: { bg: "gray.200" } }}
                         onClick={createNewSession}
                         flex={1}
                       >
@@ -376,6 +407,7 @@ export default function Sessions() {
                         color="black"
                         borderColor="gray.300"
                         _hover={{ bg: "gray.50" }}
+                        _dark={{ color: "white", borderColor: "gray.600", _hover: { bg: "gray.700" } }}
                         onClick={() => {
                           setIsCreating(false);
                           setNewSessionName("");
@@ -405,6 +437,11 @@ export default function Sessions() {
                     borderColor: "black",
                     bg: "gray.50",
                   }}
+                  _dark={{
+                    bg: "gray.800",
+                    borderColor: "gray.700",
+                    _hover: { borderColor: "white", bg: "gray.700" }
+                  }}
                   onClick={() => editingSession !== session.id && openSession(session.id)}
                 >
                   <Flex direction="column" gap={4} h="full">
@@ -425,6 +462,11 @@ export default function Sessions() {
                               borderColor="black"
                               color="black"
                               _focus={{ boxShadow: "none" }}
+                              _dark={{
+                                bg: "gray.700",
+                                borderColor: "white",
+                                color: "white"
+                              }}
                               autoFocus
                             />
                             <IconButton
@@ -450,7 +492,7 @@ export default function Sessions() {
                           </HStack>
                         ) : (
                           <>
-                            <Text fontWeight="500" color="black" fontSize="md" noOfLines={2}>
+                            <Text fontWeight="500" color="black" _dark={{ color: "white" }} fontSize="md" noOfLines={2}>
                               {session.name}
                             </Text>
                             <HStack gap={3} fontSize="xs" color="gray.500">
@@ -475,6 +517,7 @@ export default function Sessions() {
                             variant="ghost"
                             color="gray.400"
                             _hover={{ color: "black", bg: "gray.100" }}
+                            _dark={{ color: "gray.500", _hover: { color: "white", bg: "gray.700" } }}
                             aria-label="Edit"
                             onClick={(e) => startEditing(session, e)}
                           >
@@ -485,6 +528,7 @@ export default function Sessions() {
                             variant="ghost"
                             color="gray.400"
                             _hover={{ color: "black", bg: "gray.100" }}
+                            _dark={{ color: "gray.500", _hover: { color: "white", bg: "gray.700" } }}
                             aria-label="Open"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -498,6 +542,7 @@ export default function Sessions() {
                             variant="ghost"
                             color="gray.400"
                             _hover={{ color: "red.500", bg: "red.50" }}
+                            _dark={{ color: "gray.500", _hover: { color: "red.400", bg: "red.900" } }}
                             aria-label="Delete"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -515,9 +560,10 @@ export default function Sessions() {
                         mt="auto"
                         p={2}
                         bg="gray.50"
+                        _dark={{ bg: "gray.700" }}
                         borderRadius="md"
                       >
-                        <HStack gap={1} fontSize="xs" color="gray.600">
+                        <HStack gap={1} fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
                           <FiFile size={12} />
                           <Text fontWeight="500">
                             {session.uploadedFiles.length} {session.uploadedFiles.length === 1 ? 'source' : 'sources'}
@@ -540,17 +586,17 @@ export default function Sessions() {
           if (!e.open) setSessionToDelete(null);
         }}
       >
-        <DialogContent bg="white" border="1px solid" borderColor="gray.200">
+        <DialogContent bg="white" border="1px solid" borderColor="gray.200" _dark={{ bg: "gray.800", borderColor: "gray.700" }}>
           <DialogHeader>
-            <DialogTitle color="black" fontWeight="600">Delete Notebook</DialogTitle>
+            <DialogTitle color="black" _dark={{ color: "white" }} fontWeight="600">Delete Notebook</DialogTitle>
           </DialogHeader>
           <DialogBody>
             <VStack gap={3} align="start">
-              <HStack gap={2} color="gray.600">
+              <HStack gap={2} color="gray.600" _dark={{ color: "gray.400" }}>
                 <FiAlertCircle size={20} />
                 <Text fontWeight="500">Are you sure?</Text>
               </HStack>
-              <Text color="gray.600">
+              <Text color="gray.600" _dark={{ color: "gray.300" }}>
                 You're about to delete <strong>"{sessionToDelete?.name}"</strong>.
                 This will permanently remove all messages and files.
               </Text>
@@ -566,6 +612,7 @@ export default function Sessions() {
                 borderColor="gray.300"
                 color="black"
                 _hover={{ bg: "gray.50" }}
+                _dark={{ color: "white", borderColor: "gray.600", _hover: { bg: "gray.700" } }}
                 onClick={() => setSessionToDelete(null)}
               >
                 Cancel
@@ -575,6 +622,7 @@ export default function Sessions() {
               bg="black"
               color="white"
               _hover={{ bg: "gray.800" }}
+              _dark={{ bg: "white", color: "black", _hover: { bg: "gray.200" } }}
               onClick={deleteSession}
             >
               Delete

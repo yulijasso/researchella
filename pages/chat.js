@@ -119,12 +119,11 @@ export default function Chat() {
   // Fix hydration error for color mode
   useEffect(() => {
     setMounted(true);
-    // Load custom theme from localStorage
-    const savedTheme = localStorage.getItem('customTheme');
-    if (savedTheme && ['light', 'dark'].includes(savedTheme)) {
-      setCustomTheme(savedTheme);
+    // Sync with global color mode from next-themes
+    if (colorMode && ['light', 'dark'].includes(colorMode)) {
+      setCustomTheme(colorMode);
     }
-  }, []);
+  }, [colorMode]);
 
   // Toggle between light and dark themes
   const cycleTheme = () => {
