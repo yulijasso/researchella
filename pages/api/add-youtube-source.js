@@ -45,18 +45,31 @@ export default async function handler(req, res) {
     console.log(`🎬 Fetching YouTube transcript for video: ${videoId}`);
 
     // Initialize YouTube client
-    const youtube = await Innertube.create({
-      lang: 'en',
-      location: 'US',
-      retrieve_player: false,
-    });
+    let youtube;
+    try {
+      console.log('📡 Creating Innertube client...');
+      youtube = await Innertube.create({
+        lang: 'en',
+        location: 'US',
+        retrieve_player: false,
+      });
+      console.log('✅ Innertube client created');
+    } catch (createError) {
+      console.error('❌ Error creating Innertube client:', createError);
+      return res.status(500).json({
+        error: 'Failed to initialize YouTube client',
+        details: createError.message
+      });
+    }
 
     // Get video info
     let videoInfo;
     try {
+      console.log('📡 Fetching video info...');
       videoInfo = await youtube.getInfo(videoId);
+      console.log('✅ Got video info');
     } catch (infoError) {
-      console.error('Error getting video info:', infoError);
+      console.error('❌ Error getting video info:', infoError);
       return res.status(400).json({
         error: 'Could not fetch video information. The video may be private or unavailable.',
         details: infoError.message

@@ -8,6 +8,10 @@
     "pages/api/chat.js": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "pages/api/add-youtube-source.js": {
+      "maxDuration": 60,
+      "memory": 1024
     }
   },
   "headers": [
