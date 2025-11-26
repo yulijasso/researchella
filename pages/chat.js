@@ -2424,26 +2424,6 @@ export default function Chat() {
                     >
                       <VStack gap={2} align="stretch">
                         <HStack gap={2} align="start">
-                          {/* Checkbox */}
-                          <Box
-                            w="18px"
-                            h="18px"
-                            borderRadius="sm"
-                            border="2px solid"
-                            borderColor={selectedSources.includes(idx) ? "#EEF2FF0" : "gray.300"}
-                            _dark={{ borderColor: selectedSources.includes(idx) ? "#818CF8" : "gray.500" }}
-                            bg={selectedSources.includes(idx) ? "#EEF2FF0" : "transparent"}
-                            display="flex"
-                            alignItems="center"
-                            justifyContent="center"
-                            transition="all 0.15s ease"
-                            flexShrink={0}
-                            mt="2px"
-                          >
-                            {selectedSources.includes(idx) && (
-                              <FiCheck size={12} color="white" />
-                            )}
-                          </Box>
                           <Box
                             p={2}
                             bg={file.type === 'youtube' ? "red.50" : "#EEF2FF"}
