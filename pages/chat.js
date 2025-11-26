@@ -3281,7 +3281,8 @@ export default function Chat() {
                                 : "white"
                             }
                             _dark={{
-                              bg: msg.role === "user" ? "gray.700" : "#2D2D2D"
+                              bg: msg.role === "user" ? "#312E81" : "#2D2D2D",
+                              borderColor: msg.role === "user" ? "#3730A3" : "#3D3D3D"
                             }}
                             px={4}
                             py={3}
@@ -3289,9 +3290,6 @@ export default function Chat() {
                             shadow={msg.role === "user" ? "sm" : "sm"}
                             border={msg.role === "assistant" ? "1px solid" : "none"}
                             borderColor="gray.200"
-                            _dark={{
-                              borderColor: "#3D3D3D"
-                            }}
                             transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                             _hover={msg.role === "assistant" ? {
                               shadow: "md",
