@@ -2436,7 +2436,7 @@ export default function Chat() {
                             {file.type === 'youtube' ? (
                               <FiYoutube size={16} color="var(--chakra-colors-red-500)" />
                             ) : (
-                              <FiFile size={16} color="var(--chakra-colors-blue-500)" />
+                              <FiFile size={16} color="#4F46E5" />
                             )}
                           </Box>
                           <VStack align="start" gap={0} flex={1} minW={0}>
