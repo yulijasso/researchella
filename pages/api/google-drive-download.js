@@ -3,14 +3,30 @@ import { supabase } from '../../lib/supabase';
 import { addDocumentsToStore } from '../../lib/vectorStore';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import officeParser from 'officeparser';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { promisify } from 'util';
+import { exec } from 'child_process';
+
+const execPromise = promisify(exec);
 
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '50mb',
+      sizeLimit: '100mb',
     },
+    responseLimit: false,
   },
+  maxDuration: 300, // 5 minutes for large files
 };
+
+// Get Python path at runtime to avoid Turbopack static analysis of venv symlinks
+function getPythonPath() {
+  // Construct path at runtime using array join to prevent static analysis
+  const parts = [process.cwd(), 'venv', 'bin', 'python3'];
+  return parts.join(path.sep);
+}
 
 // Supported file types for officeParser
 const OFFICE_MIME_TYPES = [
@@ -25,6 +41,52 @@ const OFFICE_MIME_TYPES = [
   'application/vnd.oasis.opendocument.spreadsheet', // .ods
   'application/vnd.oasis.opendocument.presentation', // .odp
 ];
+
+// Fast PDF processing using pdfplumber (for large PDFs like textbooks)
+async function processPDFFast(filePath, fileName) {
+  console.log(`⚡ FAST MODE: Processing large PDF ${fileName}`);
+  const startTime = Date.now();
+
+  try {
+    const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber.py');
+    const pythonPath = getPythonPath();
+
+    // Execute Python script with large buffer
+    const { stdout, stderr } = await execPromise(
+      `"${pythonPath}" "${scriptPath}" "${filePath}"`,
+      { maxBuffer: 1024 * 1024 * 200, timeout: 300000 } // 200MB buffer, 5 min timeout
+    );
+
+    if (stderr && !stderr.includes('Processed') && !stderr.includes('Progress')) {
+      console.log('⚠️ pdfplumber warnings:', stderr.substring(0, 200));
+    }
+
+    const result = JSON.parse(stdout);
+
+    if (!result.success) {
+      throw new Error(result.error || 'pdfplumber extraction failed');
+    }
+
+    console.log(`📊 Extracted ${result.total_chars} chars from ${result.total_pages} pages in ${Date.now() - startTime}ms`);
+
+    // Combine all page text
+    let fullText = '';
+    for (const pageData of result.pages) {
+      if (pageData.text && pageData.text.trim().length > 0) {
+        fullText += pageData.text + '\n\n';
+      }
+    }
+
+    return {
+      content: fullText,
+      pageCount: result.total_pages,
+      charCount: result.total_chars,
+    };
+  } catch (error) {
+    console.error('Fast PDF processing error:', error);
+    throw error;
+  }
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -212,59 +274,93 @@ export default async function handler(req, res) {
 
     let content = '';
     const buffer = Buffer.from(await response.arrayBuffer());
+    const fileSizeMB = buffer.length / (1024 * 1024);
     let pdfDataBase64 = null;
 
-    // Store PDF data for viewing later
+    // Store PDF data for viewing later (skip for large files >10MB)
     const isPdf = mimeType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf');
-    if (isPdf) {
+    const MAX_PDF_STORE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (isPdf && buffer.length <= MAX_PDF_STORE_SIZE) {
       pdfDataBase64 = `data:application/pdf;base64,${buffer.toString('base64')}`;
       console.log(`📎 Stored PDF data (${Math.round(buffer.length / 1024)}KB)`);
+    } else if (isPdf) {
+      console.log(`📎 Skipping PDF storage for large file (${fileSizeMB.toFixed(1)}MB)`);
     }
 
-    // Check if it's an Office/PDF file that officeParser can handle
-    const isOfficeFile = OFFICE_MIME_TYPES.includes(exportMimeType) ||
-                         OFFICE_MIME_TYPES.includes(mimeType) ||
-                         isGoogleWorkspaceFile ||
-                         fileName.match(/\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)$/i);
+    // For large PDFs (>5MB), use fast pdfplumber processing
+    const FAST_MODE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+    if (isPdf && buffer.length > FAST_MODE_THRESHOLD) {
+      console.log(`📚 Large PDF detected (${fileSizeMB.toFixed(1)}MB) - using fast mode`);
 
-    if (isOfficeFile) {
-      // Use officeParser for PDF, Word, Excel, PowerPoint, OpenDocument
+      // Save to temp file
+      const tempDir = os.tmpdir();
+      const tempFilePath = path.join(tempDir, `gdrive-${Date.now()}-${fileName}`);
+
       try {
-        console.log(`📄 Parsing with officeParser...`);
-        content = await officeParser.parseOfficeAsync(buffer);
-        console.log(`📄 Extracted ${content.length} characters`);
-      } catch (parseError) {
-        console.error('officeParser error:', parseError);
-        // Fallback: try to read as text
+        fs.writeFileSync(tempFilePath, buffer);
+        console.log(`💾 Saved to temp: ${tempFilePath}`);
+
+        // Use fast pdfplumber processing
+        const result = await processPDFFast(tempFilePath, fileName);
+        content = result.content;
+
+        console.log(`✅ Fast mode extracted ${result.charCount} chars from ${result.pageCount} pages`);
+      } finally {
+        // Clean up temp file
         try {
-          content = buffer.toString('utf-8');
-          if (content.includes('\x00') || content.length < 10) {
-            throw new Error('Binary file could not be parsed');
+          if (fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
           }
         } catch (e) {
-          return res.status(400).json({
-            error: 'Failed to parse file',
-            details: parseError.message
-          });
+          console.log('Temp file cleanup warning:', e.message);
         }
       }
-    } else if (mimeType?.startsWith('text/') || mimeType === 'application/json') {
-      // Text-based files
-      content = buffer.toString('utf-8');
-      console.log(`📄 Read ${content.length} characters of text`);
     } else {
-      // Try officeParser as fallback for unknown types
-      try {
-        content = await officeParser.parseOfficeAsync(buffer);
-        console.log(`📄 Extracted ${content.length} characters (fallback)`);
-      } catch (e) {
-        // Last resort: try as text
+      // Check if it's an Office/PDF file that officeParser can handle
+      const isOfficeFile = OFFICE_MIME_TYPES.includes(exportMimeType) ||
+                           OFFICE_MIME_TYPES.includes(mimeType) ||
+                           isGoogleWorkspaceFile ||
+                           fileName.match(/\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)$/i);
+
+      if (isOfficeFile) {
+        // Use officeParser for PDF, Word, Excel, PowerPoint, OpenDocument
+        try {
+          console.log(`📄 Parsing with officeParser...`);
+          content = await officeParser.parseOfficeAsync(buffer);
+          console.log(`📄 Extracted ${content.length} characters`);
+        } catch (parseError) {
+          console.error('officeParser error:', parseError);
+          // Fallback: try to read as text
+          try {
+            content = buffer.toString('utf-8');
+            if (content.includes('\x00') || content.length < 10) {
+              throw new Error('Binary file could not be parsed');
+            }
+          } catch (e) {
+            return res.status(400).json({
+              error: 'Failed to parse file',
+              details: parseError.message
+            });
+          }
+        }
+      } else if (mimeType?.startsWith('text/') || mimeType === 'application/json') {
+        // Text-based files
         content = buffer.toString('utf-8');
-        if (content.includes('\x00')) {
-          return res.status(400).json({
-            error: 'Unsupported file type',
-            details: `Cannot parse file with mime type: ${mimeType}`
-          });
+        console.log(`📄 Read ${content.length} characters of text`);
+      } else {
+        // Try officeParser as fallback for unknown types
+        try {
+          content = await officeParser.parseOfficeAsync(buffer);
+          console.log(`📄 Extracted ${content.length} characters (fallback)`);
+        } catch (e) {
+          // Last resort: try as text
+          content = buffer.toString('utf-8');
+          if (content.includes('\x00')) {
+            return res.status(400).json({
+              error: 'Unsupported file type',
+              details: `Cannot parse file with mime type: ${mimeType}`
+            });
+          }
         }
       }
     }

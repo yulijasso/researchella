@@ -216,11 +216,9 @@ export default function Chat() {
           // Create and show the picker
           const picker = new window.google.picker.PickerBuilder()
             .addView(new window.google.picker.DocsView()
-              .setIncludeFolders(false)
-              .setMimeTypes('application/pdf,application/vnd.google-apps.document,application/vnd.google-apps.spreadsheet,text/plain,text/csv,application/json'))
-            .addView(new window.google.picker.DocsView()
               .setIncludeFolders(true)
-              .setSelectFolderEnabled(false))
+              .setSelectFolderEnabled(false)
+              .setMimeTypes('application/pdf,application/vnd.google-apps.document,application/vnd.google-apps.spreadsheet,text/plain,text/csv,application/json'))
             .setOAuthToken(accessToken)
             .setDeveloperKey(GOOGLE_API_KEY)
             .setCallback(async (data) => {
@@ -229,12 +227,15 @@ export default function Chat() {
                 console.log('Selected file:', file);
 
                 setIsUploading(true);
-                toaster.create({
-                  title: "Importing from Google Drive",
-                  description: `Processing "${file.name}"...`,
-                  type: "info",
-                  duration: 3000,
-                });
+
+                // Add to sources immediately with processing state
+                const processingFile = {
+                  name: file.name,
+                  type: 'google-drive',
+                  googleFileId: file.id,
+                  isProcessing: true,
+                };
+                setUploadedFiles(prev => [...prev, processingFile]);
 
                 try {
                   const response = await fetch('/api/google-drive-download', {
@@ -255,14 +256,21 @@ export default function Chat() {
                     throw new Error(result.error || 'Failed to import file');
                   }
 
-                  setUploadedFiles([...uploadedFiles, {
-                    id: result.fileId,
-                    name: file.name,
-                    chunks: result.chunks,
-                    type: 'google-drive',
-                    isPdf: result.isPdf,
-                    pdfData: result.pdfData, // For PDF viewing with highlights
-                  }]);
+                  // Update the processing file with completion data
+                  setUploadedFiles(prev => prev.map(f =>
+                    (f.googleFileId === file.id && f.isProcessing)
+                      ? {
+                          id: result.fileId,
+                          name: file.name,
+                          chunks: result.chunks,
+                          type: 'google-drive',
+                          isPdf: result.isPdf,
+                          pdfData: result.pdfData,
+                          googleFileId: file.id, // Keep for "View in Drive" option
+                          isProcessing: false,
+                        }
+                      : f
+                  ));
 
                   toaster.create({
                     title: "File Imported",
@@ -272,6 +280,8 @@ export default function Chat() {
                   });
                 } catch (error) {
                   console.error('Google Drive import error:', error);
+                  // Remove the processing file on error
+                  setUploadedFiles(prev => prev.filter(f => !(f.googleFileId === file.id && f.isProcessing)));
                   toaster.create({
                     title: "Import Failed",
                     description: error.message,
@@ -523,6 +533,8 @@ export default function Chat() {
               let videoId = null;
               let url = null;
 
+              let googleFileId = null;
+
               if (f.type === 'youtube' && f.name?.includes('||')) {
                 const parts = f.name.split('||');
                 name = parts[0];
@@ -536,6 +548,10 @@ export default function Chat() {
                 // Google Drive files: "filename||gdrive:fileId"
                 const parts = f.name.split('||');
                 name = parts[0];
+                // Extract file ID from "gdrive:fileId" format
+                if (parts[1]?.startsWith('gdrive:')) {
+                  googleFileId = parts[1].substring(7);
+                }
               } else if (f.type === 'onedrive' && f.name?.includes('||')) {
                 // OneDrive files: "filename||onedrive:fileId"
                 const parts = f.name.split('||');
@@ -552,6 +568,7 @@ export default function Chat() {
                 pages: f.pages,
                 videoId: videoId,
                 url: url,
+                googleFileId: googleFileId,
               };
             });
             setUploadedFiles(mappedFiles);
@@ -1890,12 +1907,15 @@ export default function Chat() {
                       // Find the uploaded file to get PDF data
                       const uploadedFile = uploadedFiles.find(f => f.name === citation.source);
                       if (uploadedFile?.pdfData) {
+                        // Open in-app PDF viewer
                         setCurrentPdfData(uploadedFile.pdfData);
                         setCurrentPdfPage(citation.page);
-                        // Use the EXACT same text that's displayed in the citation
                         const displayedText = getDisplayText();
                         setCurrentHighlightText(displayedText);
                         setPdfViewerVisible(true);
+                      } else if (uploadedFile?.googleFileId) {
+                        // Open in Google Drive viewer for large PDFs
+                        window.open(`https://drive.google.com/file/d/${uploadedFile.googleFileId}/view`, '_blank');
                       }
                     }}
                     fontSize="xs"
@@ -1904,7 +1924,10 @@ export default function Chat() {
                     _dark={{ color: "#818CF8", _hover: { bg: "#312E81" } }}
                     leftIcon={<FiExternalLink size={12} />}
                   >
-                    Open PDF
+                    {(() => {
+                      const uploadedFile = uploadedFiles.find(f => f.name === citation.source);
+                      return uploadedFile?.pdfData ? 'Open PDF' : (uploadedFile?.googleFileId ? 'View in Drive' : 'Open PDF');
+                    })()}
                   </Button>
                 )}
 
@@ -2857,25 +2880,50 @@ export default function Chat() {
                             )}
                           </VStack>
                           {!file.isProcessing && (
-                            <Box
-                              as="button"
-                              position="absolute"
-                              top={2}
-                              right={2}
-                              p={1}
-                              cursor="pointer"
-                              color="gray.400"
-                              _dark={{ color: "gray.500" }}
-                              _hover={{ color: "red.500", _dark: { color: "red.400" } }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteFile(idx);
-                              }}
-                              aria-label="Delete file"
-                              zIndex={10}
-                            >
-                              <FiX size={14} />
-                            </Box>
+                            <>
+                              {/* View in Drive button for Google Drive files */}
+                              {file.type === 'google-drive' && file.googleFileId && (
+                                <Box
+                                  as="a"
+                                  href={`https://drive.google.com/file/d/${file.googleFileId}/view`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  position="absolute"
+                                  top={2}
+                                  right={7}
+                                  p={1}
+                                  cursor="pointer"
+                                  color="gray.400"
+                                  _dark={{ color: "gray.500" }}
+                                  _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label="View in Google Drive"
+                                  zIndex={10}
+                                  title="View in Google Drive"
+                                >
+                                  <FiExternalLink size={14} />
+                                </Box>
+                              )}
+                              <Box
+                                as="button"
+                                position="absolute"
+                                top={2}
+                                right={2}
+                                p={1}
+                                cursor="pointer"
+                                color="gray.400"
+                                _dark={{ color: "gray.500" }}
+                                _hover={{ color: "red.500", _dark: { color: "red.400" } }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteFile(idx);
+                                }}
+                                aria-label="Delete file"
+                                zIndex={10}
+                              >
+                                <FiX size={14} />
+                              </Box>
+                            </>
                           )}
                         </HStack>
 
@@ -3329,12 +3377,44 @@ export default function Chat() {
                       >
                         {/* Header */}
                         <VStack gap={1} align="center" mb={6}>
-                          <Heading size="lg" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
-                            Add Sources
+                          {/* Logo */}
+                          <Box
+                            w="96px"
+                            h="96px"
+                            borderRadius="2xl"
+                            overflow="hidden"
+                          >
+                            <img src="/logo.png" alt="Researchella" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          </Box>
+                          <Heading size="md" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
+                            Add sources
                           </Heading>
-                          <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
-                            Upload files or add from URL
+                          <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center" maxW="380px" lineHeight="tall">
+                            Sources let Researchella base its responses on the information that matters most to you.
                           </Text>
+                          {/* Source Limit Indicator */}
+                          <HStack gap={2} mt={1}>
+                            <Box
+                              w="120px"
+                              h="4px"
+                              bg="gray.200"
+                              _dark={{ bg: "gray.600" }}
+                              borderRadius="full"
+                              overflow="hidden"
+                            >
+                              <Box
+                                h="full"
+                                w={`${Math.min((uploadedFiles.filter(f => !f.isProcessing).length / 50) * 100, 100)}%`}
+                                bg="#4F46E5"
+                                _dark={{ bg: "#A5B4FC" }}
+                                borderRadius="full"
+                                transition="width 0.3s"
+                              />
+                            </Box>
+                            <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                              {uploadedFiles.filter(f => !f.isProcessing).length}/50 sources
+                            </Text>
+                          </HStack>
                         </VStack>
 
                         {/* Upload Area */}
@@ -3344,12 +3424,12 @@ export default function Chat() {
                           cursor="pointer"
                           display="block"
                           w="full"
-                          p={10}
-                          mb={6}
+                          p={8}
+                          mb={5}
                           border="2px dashed"
                           borderColor={isUploading ? "#818CF8" : "gray.300"}
-                          _dark={{ borderColor: isUploading ? "#A5B4FC" : "#6366F1", bg: "gray.800" }}
-                          borderRadius="lg"
+                          _dark={{ borderColor: isUploading ? "#A5B4FC" : "gray.600", bg: "gray.800" }}
+                          borderRadius="xl"
                           textAlign="center"
                           transition="all 0.2s"
                           bg="gray.50"
@@ -3360,37 +3440,36 @@ export default function Chat() {
                           }}
                           opacity={isUploading ? 0.7 : 1}
                         >
-                          <VStack gap={3}>
+                          <VStack gap={2}>
                             <Box
-                              w="48px"
-                              h="48px"
-                              borderRadius="full"
+                              w="44px"
+                              h="44px"
+                              borderRadius="xl"
                               bg="#E0E7FF"
-                              _dark={{ bg: "#4338CA" }}
+                              _dark={{ bg: "#312E81" }}
                               display="flex"
                               alignItems="center"
                               justifyContent="center"
+                              mb={1}
                             >
                               {isUploading ? (
-                                <Spinner size="md" color="#4F46E5" _dark={{ color: "#E0E7FF" }} />
+                                <Spinner size="sm" color="#4F46E5" _dark={{ color: "#A5B4FC" }} />
                               ) : (
-                                <Box color="#4F46E5" _dark={{ color: "#E0E7FF" }} fontSize="xl">
-                                  <FiUpload />
-                                </Box>
+                                <FiUpload color="#4F46E5" size={20} />
                               )}
                             </Box>
-                            <Text fontWeight="600" fontSize="md" _dark={{ color: "white" }}>
-                              {isUploading ? "Uploading..." : "Upload sources"}
+                            <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }}>
+                              {isUploading ? "Processing..." : "Upload files"}
                             </Text>
-                            <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.300" }}>
+                            <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
                               {isUploading ? (
-                                "Processing document..."
+                                "Extracting content from your document..."
                               ) : (
-                                <>Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} textDecoration="underline">choose file</Text> to upload</>
+                                <>Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} fontWeight="500">browse</Text></>
                               )}
                             </Text>
-                            <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} mt={2}>
-                              Supported: PDF, TXT, MD, CSV, JSON, JPG, PNG
+                            <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
+                              PDF, TXT, MD, CSV, JSON, Images
                             </Text>
                           </VStack>
                         </Box>
@@ -3404,192 +3483,120 @@ export default function Chat() {
                           disabled={isUploading}
                         />
 
+                        {/* Divider with text */}
+                        <HStack w="full" mb={5}>
+                          <Box flex={1} h="1px" bg="gray.200" _dark={{ bg: "gray.600" }} />
+                          <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} px={3}>or import from</Text>
+                          <Box flex={1} h="1px" bg="gray.200" _dark={{ bg: "gray.600" }} />
+                        </HStack>
+
                         {/* Source Type Cards */}
-                        <SimpleGrid columns={4} gap={4} w="full">
-                          {/* Google Workspace Card */}
+                        <SimpleGrid columns={4} gap={3} w="full">
+                          {/* Google Drive Card */}
                           <Box
-                            flex={1}
                             p={4}
-                            minH="88px"
                             bg="gray.50"
-                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                            borderRadius="lg"
+                            _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                            borderRadius="xl"
                             border="1px solid"
                             borderColor="gray.200"
                             cursor={isLoadingGoogleDrive ? "wait" : "pointer"}
                             transition="all 0.2s"
-                            _hover={{ bg: "gray.100", _dark: { bg: "gray.600" } }}
+                            _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
                             onClick={handleGoogleDrivePicker}
                             opacity={isLoadingGoogleDrive ? 0.7 : 1}
                           >
-                            <HStack gap={2} mb={3}>
-                              {isLoadingGoogleDrive ? <Spinner size="sm" color="#4F46E5" /> : <SiGoogledrive color="#4F46E5" />}
-                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Google Workspace</Text>
-                            </HStack>
-                            <HStack gap={2} flexWrap="wrap">
-                              <Box
-                                as="span"
-                                px={3}
-                                py={1}
-                                bg="#E0E7FF"
-                                _dark={{ bg: "#312E81", color: "#A5B4FC" }}
-                                color="#4F46E5"
-                                borderRadius="full"
-                                fontSize="xs"
-                                fontWeight="500"
-                                display="flex"
-                                alignItems="center"
-                                gap={1}
-                              >
-                                <SiGoogledrive size={12} />
-                                Google Drive
+                            <VStack gap={2} align="center">
+                              <Box w="36px" h="36px" bg="#E0E7FF" _dark={{ bg: "#312E81" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                                {isLoadingGoogleDrive ? <Spinner size="sm" color="#4F46E5" /> : <SiGoogledrive color="#4F46E5" size={18} />}
                               </Box>
-                            </HStack>
+                              <VStack gap={0}>
+                                <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Google Drive</Text>
+                                <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">PDF, Docs, Sheets</Text>
+                              </VStack>
+                            </VStack>
                           </Box>
 
-                          {/* OneDrive Card */}
+                          {/* Website Card */}
                           <Box
-                            flex={1}
                             p={4}
-                            minH="88px"
                             bg="gray.50"
-                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                            borderRadius="lg"
+                            _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                            borderRadius="xl"
                             border="1px solid"
                             borderColor="gray.200"
-                            cursor={isLoadingOneDrive ? "wait" : "pointer"}
+                            cursor="pointer"
                             transition="all 0.2s"
-                            _hover={{ bg: "gray.100", _dark: { bg: "gray.600" } }}
-                            onClick={handleOneDrivePicker}
-                            opacity={isLoadingOneDrive ? 0.7 : 1}
+                            _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                            onClick={() => {
+                              setShowWebsiteInput(true);
+                              setShowYoutubeInput(false);
+                            }}
                           >
-                            <HStack gap={2} mb={3}>
-                              {isLoadingOneDrive ? <Spinner size="sm" color="#4F46E5" /> : <FiCloud color="#4F46E5" />}
-                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>OneDrive</Text>
-                            </HStack>
-                            <HStack gap={2} flexWrap="wrap">
-                              <Box
-                                as="span"
-                                px={3}
-                                py={1}
-                                bg="#E0E7FF"
-                                _dark={{ bg: "#312E81", color: "#A5B4FC" }}
-                                color="#4F46E5"
-                                borderRadius="full"
-                                fontSize="xs"
-                                fontWeight="500"
-                                display="flex"
-                                alignItems="center"
-                                gap={1}
-                              >
-                                <FiCloud size={12} />
-                                Microsoft
+                            <VStack gap={2} align="center">
+                              <Box w="36px" h="36px" bg="blue.100" _dark={{ bg: "blue.900" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                                <FiGlobe color="#3B82F6" size={18} />
                               </Box>
-                            </HStack>
+                              <VStack gap={0}>
+                                <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Website</Text>
+                                <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">Any webpage URL</Text>
+                              </VStack>
+                            </VStack>
                           </Box>
 
-                          {/* Link Card */}
+                          {/* YouTube Card */}
                           <Box
-                            flex={1}
                             p={4}
-                            minH="88px"
                             bg="gray.50"
-                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                            borderRadius="lg"
+                            _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                            borderRadius="xl"
                             border="1px solid"
                             borderColor="gray.200"
+                            cursor="pointer"
                             transition="all 0.2s"
+                            _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                            onClick={() => {
+                              setShowYoutubeInput(true);
+                              setShowWebsiteInput(false);
+                            }}
                           >
-                            <HStack gap={2} mb={3}>
-                              <FiLink color="#4F46E5" />
-                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Link</Text>
-                            </HStack>
-                            <HStack gap={2} flexWrap="wrap">
-                              <Box
-                                as="span"
-                                px={3}
-                                py={1}
-                                bg="gray.200"
-                                _dark={{ bg: "gray.700" }}
-                                borderRadius="full"
-                                fontSize="xs"
-                                fontWeight="500"
-                                display="flex"
-                                alignItems="center"
-                                gap={1}
-                                cursor="pointer"
-                                _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
-                                onClick={() => {
-                                  setShowWebsiteInput(true);
-                                  setShowYoutubeInput(false);
-                                }}
-                              >
-                                <FiGlobe size={12} />
-                                Website
+                            <VStack gap={2} align="center">
+                              <Box w="36px" h="36px" bg="red.100" _dark={{ bg: "red.900" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                                <FiYoutube color="#EF4444" size={18} />
                               </Box>
-                              <Box
-                                as="span"
-                                px={3}
-                                py={1}
-                                bg="red.100"
-                                _dark={{ bg: "red.900", color: "red.300" }}
-                                color="red.600"
-                                borderRadius="full"
-                                fontSize="xs"
-                                fontWeight="500"
-                                display="flex"
-                                alignItems="center"
-                                gap={1}
-                                cursor="pointer"
-                                _hover={{ bg: "red.200", _dark: { bg: "red.800" } }}
-                                onClick={() => {
-                                  setShowYoutubeInput(true);
-                                  setShowWebsiteInput(false);
-                                }}
-                              >
-                                <FiYoutube size={12} />
-                                YouTube
-                              </Box>
-                            </HStack>
+                              <VStack gap={0}>
+                                <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">YouTube</Text>
+                                <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">Video transcript</Text>
+                              </VStack>
+                            </VStack>
                           </Box>
 
                           {/* Paste Text Card */}
                           <Box
-                            flex={1}
                             p={4}
-                            minH="88px"
                             bg="gray.50"
-                            _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                            borderRadius="lg"
+                            _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                            borderRadius="xl"
                             border="1px solid"
                             borderColor="gray.200"
+                            cursor="pointer"
                             transition="all 0.2s"
+                            _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                            onClick={() => {
+                              setShowPasteText(true);
+                              setShowWebsiteInput(false);
+                              setShowYoutubeInput(false);
+                            }}
                           >
-                            <HStack gap={2} mb={3}>
-                              <FiFileText color="#4F46E5" />
-                              <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Paste text</Text>
-                            </HStack>
-                            <HStack gap={2}>
-                              <Box
-                                as="span"
-                                px={3}
-                                py={1}
-                                bg="gray.200"
-                                _dark={{ bg: "gray.700" }}
-                                borderRadius="full"
-                                fontSize="xs"
-                                fontWeight="500"
-                                display="flex"
-                                alignItems="center"
-                                gap={1}
-                                cursor="pointer"
-                                _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
-                                onClick={() => setShowPasteText(true)}
-                              >
-                                <FiFile size={12} />
-                                Copied text
+                            <VStack gap={2} align="center">
+                              <Box w="36px" h="36px" bg="green.100" _dark={{ bg: "green.900" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                                <FiFileText color="#22C55E" size={18} />
                               </Box>
-                            </HStack>
+                              <VStack gap={0}>
+                                <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Paste text</Text>
+                                <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">Copy & paste</Text>
+                              </VStack>
+                            </VStack>
                           </Box>
                         </SimpleGrid>
                       </Box>
@@ -3610,12 +3617,44 @@ export default function Chat() {
                       shadow="lg"
                     >
                       <VStack gap={1} align="center" mb={6}>
-                        <Heading size="lg" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
-                          Add Sources
+                        {/* Logo */}
+                        <Box
+                          w="96px"
+                          h="96px"
+                          borderRadius="2xl"
+                          overflow="hidden"
+                        >
+                          <img src="/logo.png" alt="Researchella" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </Box>
+                        <Heading size="md" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
+                          Add sources
                         </Heading>
-                        <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
-                          Upload files or add from URL
+                        <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center" maxW="380px" lineHeight="tall">
+                          Sources let Researchella base its responses on the information that matters most to you.
                         </Text>
+                        {/* Source Limit Indicator */}
+                        <HStack gap={2} mt={1}>
+                          <Box
+                            w="120px"
+                            h="4px"
+                            bg="gray.200"
+                            _dark={{ bg: "gray.600" }}
+                            borderRadius="full"
+                            overflow="hidden"
+                          >
+                            <Box
+                              h="full"
+                              w={`${Math.min((uploadedFiles.filter(f => !f.isProcessing).length / 50) * 100, 100)}%`}
+                              bg="#4F46E5"
+                              _dark={{ bg: "#A5B4FC" }}
+                              borderRadius="full"
+                              transition="width 0.3s"
+                            />
+                          </Box>
+                          <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                            {uploadedFiles.filter(f => !f.isProcessing).length}/50 sources
+                          </Text>
+                        </HStack>
                       </VStack>
                       <Box
                         as="label"
@@ -3980,10 +4019,9 @@ export default function Chat() {
                         maxH="200px"
                         overflowY="auto"
                         bg="white"
-                        _dark={{ bg: "gray.800" }}
                         border="1px solid"
                         borderColor="gray.200"
-                        _dark={{ borderColor: "gray.700" }}
+                        _dark={{ bg: "gray.800", borderColor: "gray.600" }}
                         borderRadius="lg"
                         boxShadow="lg"
                         zIndex={1000}
@@ -4005,7 +4043,7 @@ export default function Chat() {
                             onClick={() => insertMention(file)}
                             onMouseEnter={() => setAutocompleteIndex(idx)}
                           >
-                            <Text fontSize="sm" noOfLines={1}>
+                            <Text fontSize="sm" noOfLines={1} color="gray.800" _dark={{ color: "gray.100" }}>
                               {getDisplayName(file)}
                             </Text>
                           </Box>
