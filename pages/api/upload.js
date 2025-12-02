@@ -19,10 +19,64 @@ const openai = new OpenAI({
 export const config = {
   api: {
     bodyParser: false,
-    // Increase timeout for OCR processing
+    // Increase timeout for large file processing
     externalResolver: true,
+    // Disable response size limit for large files
+    responseLimit: false,
   },
 };
+
+// Fast chunking without GPT cleaning - uses only regex-based cleaning
+function fastChunkText(text, fileName, fileType = "pdf", pageNumber = null) {
+  const chunks = [];
+
+  // Apply universal text cleaning (regex only, no GPT)
+  let cleanedText = cleanTextUniversal(text);
+
+  if (!cleanedText || cleanedText.length < 10) {
+    return chunks;
+  }
+
+  // Simple sentence-aware chunking
+  const chunkSize = 500;  // Slightly larger chunks for speed
+  const overlap = 100;
+
+  // Split on sentence boundaries
+  const sentences = cleanedText.split(/(?<=[.!?])\s+/);
+  let currentChunk = "";
+
+  for (const sentence of sentences) {
+    if (currentChunk.length + sentence.length > chunkSize && currentChunk.length > 0) {
+      chunks.push({
+        content: currentChunk.trim(),
+        metadata: {
+          source: fileName,
+          type: fileType,
+          ...(pageNumber && { page: pageNumber }),
+        },
+      });
+      // Keep last part for overlap
+      const words = currentChunk.split(' ');
+      currentChunk = words.slice(-20).join(' ') + ' ' + sentence;
+    } else {
+      currentChunk += (currentChunk ? ' ' : '') + sentence;
+    }
+  }
+
+  // Don't forget the last chunk
+  if (currentChunk.trim().length > 10) {
+    chunks.push({
+      content: currentChunk.trim(),
+      metadata: {
+        source: fileName,
+        type: fileType,
+        ...(pageNumber && { page: pageNumber }),
+      },
+    });
+  }
+
+  return chunks;
+}
 
 // Universal text cleaning function - fixes all spacing and formatting issues
 function cleanTextUniversal(text) {
@@ -329,6 +383,59 @@ Output: "Machine learning models can achieve high accuracy"`
   }
 
   return chunks;
+}
+
+// FAST PDF processing - uses only pdfplumber + regex cleaning, no GPT
+async function processPDFFast(filePath, fileName, fileSize) {
+  console.log(`⚡ FAST MODE: Processing PDF ${fileName} (${Math.round(fileSize / 1024 / 1024)}MB)`);
+  const startTime = Date.now();
+
+  try {
+    const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber_parallel.py');
+    const pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+
+    // Execute Python script
+    const { stdout, stderr } = await execPromise(
+      `"${pythonPath}" "${scriptPath}" "${filePath}"`,
+      { maxBuffer: 1024 * 1024 * 200 }
+    );
+
+    if (stderr && !stderr.includes('Progress')) {
+      console.log('⚠️ pdfplumber warnings:', stderr.substring(0, 200));
+    }
+
+    const result = JSON.parse(stdout);
+
+    if (!result.success) {
+      throw new Error(result.error || 'pdfplumber extraction failed');
+    }
+
+    console.log(`📊 Extracted ${result.total_chars} chars from ${result.total_pages} pages`);
+
+    // Fast chunking - no GPT, just regex cleaning
+    const chunks = [];
+    for (const pageData of result.pages) {
+      if (pageData.text && pageData.text.trim().length > 50) {
+        const pageChunks = fastChunkText(
+          pageData.text,
+          fileName,
+          "pdf-fast",
+          pageData.page
+        );
+        chunks.push(...pageChunks);
+      }
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`⚡ FAST MODE complete: ${chunks.length} chunks in ${elapsed}s`);
+
+    return chunks;
+
+  } catch (error) {
+    console.log(`⚠️ Fast mode failed: ${error.message}, falling back to standard`);
+    // Fall back to standard processing
+    return processPDF(filePath, fileName);
+  }
 }
 
 async function processPDF(filePath, fileName) {
@@ -833,11 +940,19 @@ export default async function handler(req, res) {
         console.log(`Starting file upload: ${file.originalFilename}`);
       });
 
+      // Handle stream errors
+      form.on('error', (err) => {
+        console.error('Formidable stream error:', err);
+        reject(err);
+      });
+
       form.parse(req, (err, fields, files) => {
         if (err) {
           console.error('Formidable parse error:', err);
           if (err.code === 'LIMIT_FILE_SIZE') {
             reject(new Error('File too large. Maximum size is 100MB.'));
+          } else if (err.message?.includes('stream ended unexpectedly')) {
+            reject(new Error('Upload interrupted. Please check your connection and try again.'));
           } else {
             reject(err);
           }
@@ -859,13 +974,22 @@ export default async function handler(req, res) {
     const fileName = file.originalFilename || file.newFilename;
     const fileExt = path.extname(fileName).toLowerCase();
 
-    console.log(`Processing file: ${fileName} (${fileExt})`);
+    const fileSize = file.size || 0;
+    console.log(`Processing file: ${fileName} (${fileExt}, ${Math.round(fileSize / 1024 / 1024 * 10) / 10}MB)`);
 
     let documents = [];
     const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"];
 
+    // Use FAST MODE for PDFs over 2MB - skips GPT cleaning for speed
+    const FAST_MODE_THRESHOLD = 2 * 1024 * 1024; // 2MB
+
     if (fileExt === ".pdf") {
-      documents = await processPDF(filePath, fileName);
+      if (fileSize > FAST_MODE_THRESHOLD) {
+        console.log(`⚡ Large PDF detected (${Math.round(fileSize / 1024 / 1024)}MB) - using FAST MODE`);
+        documents = await processPDFFast(filePath, fileName, fileSize);
+      } else {
+        documents = await processPDF(filePath, fileName);
+      }
     } else if (fileExt === ".txt" || fileExt === ".md" || fileExt === ".csv" || fileExt === ".json") {
       documents = await processTextFile(filePath, fileName);
     } else if (imageExtensions.includes(fileExt)) {
@@ -879,17 +1003,25 @@ export default async function handler(req, res) {
     console.log(`Extracted ${documents.length} chunks from ${fileName} for user ${userId}, session ${sessionId}`);
 
     // Add to vector store with BOTH session ID and user ID for double isolation
-    const result = await addDocumentsToStore(documents, sessionId, userId);
+    // In fast mode, don't wait for Pinecone indexing (eventual consistency is fine)
+    const isFastMode = documents[0]?.metadata?.type === 'pdf-fast';
+    const result = await addDocumentsToStore(documents, sessionId, userId, !isFastMode);
 
     // Read file data as base64 for later viewing - BEFORE deleting file
+    // Skip base64 for large PDFs (>10MB) to improve speed and avoid Supabase limits
+    const MAX_BASE64_SIZE = 10 * 1024 * 1024; // 10MB
     let fileBase64 = null;
     const imageExtensionsForSave = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"];
     if (fileExt === '.pdf') {
-      try {
-        const fileBuffer = fs.readFileSync(filePath);
-        fileBase64 = `data:application/pdf;base64,${fileBuffer.toString('base64')}`;
-      } catch (e) {
-        console.log('Could not read PDF for base64 encoding:', e);
+      if (fileSize > MAX_BASE64_SIZE) {
+        console.log(`⚡ Skipping base64 storage for large PDF (${Math.round(fileSize / 1024 / 1024)}MB > 10MB)`);
+      } else {
+        try {
+          const fileBuffer = fs.readFileSync(filePath);
+          fileBase64 = `data:application/pdf;base64,${fileBuffer.toString('base64')}`;
+        } catch (e) {
+          console.log('Could not read PDF for base64 encoding:', e);
+        }
       }
     } else if (imageExtensionsForSave.includes(fileExt)) {
       try {
@@ -930,11 +1062,21 @@ export default async function handler(req, res) {
       console.error('Error saving file to Supabase:', dbError);
     }
 
+    // Determine processing method for response
+    const docType = documents[0]?.metadata?.type || 'unknown';
+    let method = 'standard';
+    if (docType === 'pdf-fast') {
+      method = 'fast';
+    } else if (docType === 'image-vision' || docType === 'pdf-vision') {
+      method = 'GPT-4 Vision';
+    }
+
     res.status(200).json({
       success: true,
       message: `Successfully processed ${fileName}`,
       chunksAdded: result.count,
-      method: (documents[0]?.metadata?.type === "image-vision" || documents[0]?.metadata?.type === "pdf-vision") ? "GPT-4 Vision" : "standard"
+      method: method,
+      fastMode: docType === 'pdf-fast'
     });
   } catch (error) {
     console.error("Upload error:", error);

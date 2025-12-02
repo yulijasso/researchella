@@ -19,8 +19,13 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
+
+  // Allow large file uploads (default is 10MB)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '100mb',
+    },
+    proxyClientMaxBodySize: '100mb',
   },
 };
 

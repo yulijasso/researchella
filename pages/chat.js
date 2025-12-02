@@ -586,6 +586,18 @@ export default function Chat() {
     const isYouTube = isYouTubeUrl(url);
     const apiEndpoint = isYouTube ? "/api/add-youtube-source" : "/api/scrape";
 
+    // Generate a temporary name for the processing file
+    const tempName = isYouTube ? `YouTube: ${url.substring(0, 30)}...` : `URL: ${url.substring(0, 30)}...`;
+
+    // Add to sources immediately with processing state
+    const processingFile = {
+      name: tempName,
+      type: isYouTube ? 'youtube' : 'url',
+      url: url,
+      isProcessing: true,
+    };
+    setUploadedFiles(prev => [...prev, processingFile]);
+
     setIsUploading(true);
 
     try {
@@ -604,6 +616,8 @@ export default function Chat() {
       if (!response.ok) {
         const errorData = await response.json();
         const errorMessage = errorData.error || (isYouTube ? "Failed to fetch YouTube transcript" : "Failed to scrape URL");
+        // Remove the processing file on error
+        setUploadedFiles(prev => prev.filter(f => !(f.url === url && f.isProcessing)));
         toaster.create({
           title: isYouTube ? "Failed to Add YouTube Video" : "Failed to Add Paper",
           description: errorMessage,
@@ -618,19 +632,25 @@ export default function Chat() {
       const data = await response.json();
       const chunks = data.chunks || data.chunksAdded;
 
-      setUploadedFiles([...uploadedFiles, {
-        name: data.title,
-        chunks: chunks,
-        url: url,
-        type: isYouTube ? 'youtube' : 'url',
-        // YouTube-specific data
-        ...(isYouTube && {
-          videoId: data.videoId,
-          author: data.author,
-          transcript: data.transcript,
-          thumbnail: data.thumbnail,
-        })
-      }]);
+      // Update the processing file with completion data
+      setUploadedFiles(prev => prev.map(f =>
+        (f.url === url && f.isProcessing)
+          ? {
+              name: data.title,
+              chunks: chunks,
+              url: url,
+              type: isYouTube ? 'youtube' : 'url',
+              isProcessing: false,
+              // YouTube-specific data
+              ...(isYouTube && {
+                videoId: data.videoId,
+                author: data.author,
+                transcript: data.transcript,
+                thumbnail: data.thumbnail,
+              })
+            }
+          : f
+      ));
 
       // Add system message about successful scraping
       setMessages([
@@ -660,6 +680,8 @@ export default function Chat() {
       setShowUrlInput(false);
     } catch (error) {
       console.error("URL processing error:", error);
+      // Remove the processing file on error
+      setUploadedFiles(prev => prev.filter(f => !(f.url === url && f.isProcessing)));
       toaster.create({
         title: isYouTube ? "Failed to Add YouTube Video" : "Failed to Add Paper",
         description: error.message || "Could not process the URL. Please try a different link.",
@@ -748,6 +770,16 @@ export default function Chat() {
 
     setIsUploading(true);
 
+    // Add file to sources immediately with processing state (NotebookLM style)
+    const processingFile = {
+      name: file.name,
+      type: file.type,
+      isPDF: file.type === 'application/pdf',
+      isProcessing: true,
+      uploadStartTime: Date.now(),
+    };
+    setUploadedFiles(prev => [...prev, processingFile]);
+
     // Show progress toast for large files (>10MB)
     if (fileSizeMB > 10) {
       toaster.create({
@@ -763,10 +795,17 @@ export default function Chat() {
       formData.append("file", file);
       formData.append("sessionId", sessionId); // Add session ID for isolation
 
+      // Use AbortController with longer timeout for large files (5 minutes)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
       const response = await fetch("/api/upload", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -780,19 +819,28 @@ export default function Chat() {
         name: file.name,
         chunks: data.chunksAdded,
         type: file.type,
-        isPDF: file.type === 'application/pdf'
+        isPDF: file.type === 'application/pdf',
+        isProcessing: false, // Mark as complete
+      };
+
+      // Helper to update the processing file entry
+      const updateProcessingFile = (pdfData = null) => {
+        setUploadedFiles(prev => prev.map(f =>
+          (f.name === file.name && f.isProcessing)
+            ? { ...fileData, pdfData }
+            : f
+        ));
       };
 
       // If it's a PDF, convert to base64 for storage and viewing
       if (file.type === 'application/pdf') {
         const reader = new FileReader();
         reader.onload = (e) => {
-          fileData.pdfData = e.target.result;
-          setUploadedFiles([...uploadedFiles, fileData]);
+          updateProcessingFile(e.target.result);
         };
         reader.readAsDataURL(file);
       } else {
-        setUploadedFiles([...uploadedFiles, fileData]);
+        updateProcessingFile();
       }
 
       // Add system message about successful upload
@@ -823,10 +871,12 @@ export default function Chat() {
       // Provide specific error messages
       let errorMessage = error.message || "Failed to process the document.";
 
-      if (errorMessage.includes('too large') || errorMessage.includes('LIMIT_FILE_SIZE')) {
+      if (error.name === 'AbortError') {
+        errorMessage = `Upload timed out after 5 minutes. The file (${fileSizeMB.toFixed(1)}MB) may be too large or complex.`;
+      } else if (errorMessage.includes('too large') || errorMessage.includes('LIMIT_FILE_SIZE')) {
         errorMessage = `File is too large. Maximum size is ${maxSizeMB}MB. Your file is ${fileSizeMB.toFixed(1)}MB.`;
-      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-        errorMessage = `Upload timed out. The file may be too large or complex. Try a smaller file or contact support.`;
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('Failed to fetch')) {
+        errorMessage = `Connection failed. The server may be processing. Please try again.`;
       } else if (fileSizeMB > 50) {
         errorMessage = `Failed to process large file (${fileSizeMB.toFixed(1)}MB). ${errorMessage}`;
       }
@@ -837,6 +887,9 @@ export default function Chat() {
         type: "error",
         duration: 7000,
       });
+
+      // Remove the processing file entry on error
+      setUploadedFiles(prev => prev.filter(f => !(f.name === file.name && f.isProcessing)));
 
       // Reset file input
       event.target.value = "";
@@ -1042,6 +1095,18 @@ export default function Chat() {
   };
 
   const handleAddWebSource = async (result) => {
+    // Add to sources immediately with processing state
+    const processingFile = {
+      name: result.title,
+      type: 'url',
+      url: result.url,
+      isProcessing: true,
+    };
+    setUploadedFiles(prev => [...prev, processingFile]);
+
+    // Remove from search results immediately
+    setWebSearchResults(webSearchResults.filter(r => r.url !== result.url));
+
     try {
       setIsUploading(true);
 
@@ -1064,14 +1129,12 @@ export default function Chat() {
 
       const data = await response.json();
 
-      // Add to uploaded files
-      setUploadedFiles([...uploadedFiles, {
-        name: result.title,
-        type: 'url',
-        url: result.url,
-        chunks: data.chunks,
-        id: data.fileId,
-      }]);
+      // Update the processing file with completion data
+      setUploadedFiles(prev => prev.map(f =>
+        (f.name === result.title && f.isProcessing)
+          ? { ...f, chunks: data.chunks, id: data.fileId, isProcessing: false }
+          : f
+      ));
 
       toaster.create({
         title: "Source Added",
@@ -1079,11 +1142,10 @@ export default function Chat() {
         type: "success",
         duration: 3000,
       });
-
-      // Remove from search results
-      setWebSearchResults(webSearchResults.filter(r => r.url !== result.url));
     } catch (error) {
       console.error('Error adding web source:', error);
+      // Remove the processing file on error
+      setUploadedFiles(prev => prev.filter(f => !(f.name === result.title && f.isProcessing)));
       toaster.create({
         title: "Error",
         description: "Failed to add web source. Please try again.",
@@ -1593,7 +1655,6 @@ export default function Chat() {
     return (
       <Popover.Root
         open={isOpen}
-        onOpenChange={setIsOpen}
         positioning={{ placement: 'top' }}
       >
         <Popover.Trigger asChild>
@@ -1611,7 +1672,7 @@ export default function Chat() {
               padding: '0 2px',
               marginLeft: '1px',
               marginRight: '1px',
-              cursor: 'pointer',
+              cursor: 'default',
               transition: 'all 0.15s ease',
               textDecoration: isOpen ? 'underline' : 'none',
               verticalAlign: 'baseline',
@@ -1621,6 +1682,7 @@ export default function Chat() {
             }}
             onMouseEnter={() => setIsOpen(true)}
             onMouseLeave={() => setIsOpen(false)}
+            onClick={(e) => e.preventDefault()}
           >
             {citationNum}
           </span>
@@ -1824,7 +1886,8 @@ export default function Chat() {
         // Matches: [CHUNK-N], [CHUNK-N:S], [CHUNK-N:"verbatim quote"]
         const parts = [];
         let lastIndex = 0;
-        const citationRegex = /\[CHUNK-(\d+)(?::"[^"]*"|:[\d,-]+)?\]/g;
+        // Updated regex to capture the quote text in group 2
+        const citationRegex = /\[CHUNK-(\d+)(?::"([^"]*)"|:[\d,-]+)?\]/g;
         let match;
         let citationIndex = 0; // Track which citation we're on
 
@@ -1840,10 +1903,25 @@ export default function Chat() {
 
         // Add clean, modern citation
         const citationNum = parseInt(match[1]);
+        const citationQuote = match[2] || null; // The quote text if present
 
-        // Try to find citation by ID first, then fall back to index
-        // This ensures citations work properly when reloading from database
-        let citation = messageCitations.find(c => c.id === citationNum || c.actualChunkId === citationNum);
+        // Try to find citation by matching BOTH id AND quote for accuracy
+        // This handles cases where the same chunk has multiple different quotes
+        let citation = null;
+
+        if (citationQuote) {
+          // First try to find exact match by quote
+          citation = messageCitations.find(c =>
+            c.quote && c.quote.substring(0, 50) === citationQuote.substring(0, 50)
+          );
+        }
+
+        // Fall back to matching by ID if no quote match found
+        if (!citation) {
+          citation = messageCitations.find(c => c.id === citationNum || c.actualChunkId === citationNum);
+        }
+
+        // Final fallback to index
         if (!citation && messageCitations[citationIndex]) {
           citation = messageCitations[citationIndex];
         }
@@ -2451,17 +2529,19 @@ export default function Chat() {
                       bg="gray.50"
                       _dark={{ bg: "gray.800", borderColor: selectedSources.includes(idx) ? "#818CF8" : "gray.700" }}
                       border="1px solid"
-                      borderColor={selectedSources.includes(idx) ? "#818CF8" : "gray.100"}
+                      borderColor={file.isProcessing ? "blue.200" : selectedSources.includes(idx) ? "#818CF8" : "gray.100"}
                       position="relative"
-                      cursor="pointer"
+                      cursor={file.isProcessing ? "default" : "pointer"}
+                      opacity={file.isProcessing ? 0.8 : 1}
                       transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
-                      _hover={{
+                      _hover={file.isProcessing ? {} : {
                         borderColor: "#818CF8",
                         transform: "translateY(-1px)",
                         shadow: "sm",
                         _dark: { borderColor: "#A5B4FC" }
                       }}
                       onClick={() => {
+                        if (file.isProcessing) return; // Don't allow selection while processing
                         if (selectedSources.includes(idx)) {
                           setSelectedSources(selectedSources.filter(i => i !== idx));
                         } else {
@@ -2473,12 +2553,14 @@ export default function Chat() {
                         <HStack gap={2} align="start">
                           <Box
                             p={2}
-                            bg={file.type === 'youtube' ? "red.50" : "#EEF2FF"}
-                            _dark={{ bg: file.type === 'youtube' ? "red.900" : "#312E81" }}
+                            bg={file.isProcessing ? "blue.50" : file.type === 'youtube' ? "red.50" : "#EEF2FF"}
+                            _dark={{ bg: file.isProcessing ? "blue.900" : file.type === 'youtube' ? "red.900" : "#312E81" }}
                             borderRadius="md"
                             flexShrink={0}
                           >
-                            {file.type === 'youtube' ? (
+                            {file.isProcessing ? (
+                              <Spinner size="sm" color="#4F46E5" />
+                            ) : file.type === 'youtube' ? (
                               <FiYoutube size={16} color="var(--chakra-colors-red-500)" />
                             ) : (
                               <FiFile size={16} color="#4F46E5" />
@@ -2540,30 +2622,36 @@ export default function Chat() {
                                 />
                               )}
                             </HStack>
-                            {file.chunks && (
+                            {file.isProcessing ? (
+                              <Text fontSize="xs" color="blue.500" _dark={{ color: "blue.300" }}>
+                                Processing...
+                              </Text>
+                            ) : file.chunks && (
                               <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
                                 {file.chunks} chunks
                               </Text>
                             )}
                           </VStack>
-                          <IconButton
-                            icon={<FiX />}
-                            size="sm"
-                            variant="ghost"
-                            aria-label="Delete file"
-                            position="absolute"
-                            top={2}
-                            right={2}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteFile(idx);
-                            }}
-                            color="black"
-                            _hover={{ color: "red.600", bg: "red.50" }}
-                            _dark={{ color: "gray.300", _hover: { color: "red.400", bg: "red.900" } }}
-                            zIndex={10}
-                            fontSize="16px"
-                          />
+                          {!file.isProcessing && (
+                            <IconButton
+                              icon={<FiX />}
+                              size="sm"
+                              variant="ghost"
+                              aria-label="Delete file"
+                              position="absolute"
+                              top={2}
+                              right={2}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteFile(idx);
+                              }}
+                              color="black"
+                              _hover={{ color: "red.600", bg: "red.50" }}
+                              _dark={{ color: "gray.300", _hover: { color: "red.400", bg: "red.900" } }}
+                              zIndex={10}
+                              fontSize="16px"
+                            />
+                          )}
                         </HStack>
 
                         {/* YouTube Video Embed */}

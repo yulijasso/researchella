@@ -520,6 +520,9 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
         const doc = retrievedDocs[chunkId - 1];
         if (doc) {
           console.log(`   ℹ️  Adding CHUNK-${chunkId} (no quote provided)`);
+          // Extract first meaningful sentence for quote display
+          const sentences = (doc.content || '').split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 20);
+          const firstSentence = sentences[0]?.substring(0, 200) || doc.content?.substring(0, 200) || '';
           finalCitations.push({
             id: chunkId,
             actualChunkId: chunkId,
@@ -528,6 +531,7 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
             type: doc.metadata?.type || 'document',
             url: doc.metadata?.url || null,  // Include URL for web/youtube sources
             content: doc.content,
+            quote: firstSentence.trim(),  // Add quote for display
             highlightText: doc.content.substring(0, 200) + '...',
             noQuote: true
           });
