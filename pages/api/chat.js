@@ -3,6 +3,7 @@ import { searchDocuments } from '../../lib/vectorStore';
 import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
 import { findExactQuote, extractVerbatimQuotes, enhanceCitationsWithVerbatim } from '../../lib/verbatimMatcher';
+import { getTokenSafeMessages, processWithMemory } from '../../lib/conversationMemory';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -21,10 +22,44 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages, useRAG = true, sessionId = 'default', tutoringMode = 'direct', mentionedSources = null } = req.body;
+    let { messages, useRAG = true, sessionId = 'default', mentionedSources = null } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Messages array is required' });
+    }
+
+    // Check if any message contains images (check before processing)
+    const hasImagesInHistory = messages.some(m =>
+      Array.isArray(m.content) &&
+      m.content.some(item => item.type === 'image_url')
+    );
+
+    // Use hierarchical memory system to manage conversation history
+    // This handles: truncation, image stripping, and optional summarization
+    let conversationContext = null;
+    try {
+      // For sessions with many messages, use full memory processing with summarization
+      if (messages.length > 15 && sessionId !== 'default') {
+        conversationContext = await processWithMemory(sessionId, userId, messages, hasImagesInHistory);
+        messages = conversationContext.messages;
+        if (conversationContext.wasJustSummarized) {
+          console.log(`🧠 Created new conversation summary for session ${sessionId}`);
+        }
+      } else {
+        // For shorter conversations, just use token-safe truncation
+        const safeMessages = getTokenSafeMessages(messages, hasImagesInHistory, 15000);
+        messages = safeMessages.messages;
+        if (safeMessages.truncated) {
+          console.log(`⚠️ Truncated conversation to ${messages.length} messages (~${safeMessages.estimatedTokens} tokens)`);
+        }
+      }
+    } catch (memoryError) {
+      console.error('Memory processing error, using fallback:', memoryError.message);
+      // Fallback: simple truncation
+      const maxMsgs = hasImagesInHistory ? 6 : 20;
+      if (messages.length > maxMsgs) {
+        messages = messages.slice(-maxMsgs);
+      }
     }
 
     // Check if any message contains images
@@ -59,17 +94,24 @@ export default async function handler(req, res) {
         .filter(s => s.length > 20);
     };
 
-    if (useRAG && lastUserMessage) {
+    // Skip RAG for image-only queries (when user is just asking about an uploaded image)
+    const imageOnlyQuery = hasImages && (!getMessageText(lastUserMessage) || getMessageText(lastUserMessage).trim().length < 20);
+
+    if (useRAG && lastUserMessage && !imageOnlyQuery) {
       const queryText = getMessageText(lastUserMessage);
       if (queryText) {
         // Search for relevant documents with @mention filtering at database level
         const mentionInfo = mentionedSources ? ` (@mentioned: ${mentionedSources.join(', ')})` : '';
         console.log(`\n🔍 RAG Query: "${queryText}"${mentionInfo} (User: ${userId}, Session: ${sessionId})`);
 
-        // Pass mentioned sources to searchDocuments for Pinecone-level filtering
-        retrievedDocs = await searchDocuments(queryText, 15, sessionId, userId, mentionedSources);  // More chunks since they're smaller
+        // Reduce chunks when images are present to avoid token limit issues
+        // Images are large (base64) so we need to leave room for them
+        const maxChunks = hasImages ? 3 : 15;
 
-        console.log(`📊 Retrieved ${retrievedDocs.length} documents from vector store`);
+        // Pass mentioned sources to searchDocuments for Pinecone-level filtering
+        retrievedDocs = await searchDocuments(queryText, maxChunks, sessionId, userId, mentionedSources);
+
+        console.log(`📊 Retrieved ${retrievedDocs.length} documents from vector store${hasImages ? ' (reduced for image context)' : ''}`);
 
       if (retrievedDocs.length > 0) {
         // Log what we found for debugging
@@ -139,71 +181,26 @@ export default async function handler(req, res) {
         contextInfo += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
       }
       }
+    } else if (imageOnlyQuery) {
+      console.log('📷 Image-only query detected, skipping RAG to save tokens');
     }
 
-    // Mode-specific instructions
-    const modeInstructions = tutoringMode === 'interactive' ? `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 INTERACTIVE (SOCRATIC) MODE ACTIVATED
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Your teaching approach:
-1. 🎓 GUIDE, DON'T TELL:
-   - Instead of giving direct answers, ask thoughtful questions that lead students to discover the answer
-   - Break down complex concepts into smaller, digestible questions
-   - Use the Socratic method to foster critical thinking
-   - Build on student responses to deepen understanding
-
-2. 💡 SCAFFOLD LEARNING:
-   - Start with what the student likely knows
-   - Ask questions that reveal misconceptions
-   - Guide them to connect new information with existing knowledge
-   - Use hints and leading questions rather than explanations
-
-3. ✅ CHECK UNDERSTANDING:
-   - After explaining a concept, ask a question to verify comprehension
-   - If the student seems confused, break down the concept further
-   - Encourage students to explain concepts in their own words
-
-4. 🔍 REFERENCE MATERIALS:
-   - When asking questions, cite where students can find supporting information
-   - Use quotes from sources to provide hints with proper [CHUNK-N:"quote"] format
-   - Guide students to explore the source materials themselves
-
-EXAMPLE INTERACTION:
-Student: "What is adversarial training?"
-You: "Great question! Let's explore this together. First, we know that [CHUNK-1:"adversarial examples are inputs designed to fool a model"]. Based on this, what do you think adversarial training might involve?"
-
-Instead of giving the full answer, you've:
-- Provided a cited hint from the source material using proper [CHUNK-N:"quote"] format
-- Asked a question to engage critical thinking
-- Invited the student to reason through the concept
-` : `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ DIRECT MODE ACTIVATED
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Your response style:
-1. 📋 COMPREHENSIVE & DIRECT:
-   - Provide clear, complete answers immediately
-   - Include all relevant details from the sources
-   - Be thorough and detailed in explanations
-   - Structure information logically
-
-2. 🎯 FOCUSED EXPLANATIONS:
-   - Answer the question directly and completely
-   - Include definitions, examples, and context as needed
-   - Provide comprehensive coverage of the topic
-   - Don't hold back information
-
-EXAMPLE INTERACTION:
-Student: "What is adversarial training?"
-You: "Adversarial training is a technique where models are trained on adversarial examples to improve robustness [CHUNK-1:"models are trained on adversarial examples to improve robustness"]. Specifically, it involves generating adversarial perturbations during training [CHUNK-2:"generating adversarial perturbations during training and including them in the training data"], which helps the model learn to resist attacks [CHUNK-3:"learn to resist attacks and make more reliable predictions"].
-`;
+    // Add conversation summary context if available from hierarchical memory
+    let conversationSummaryContext = '';
+    if (conversationContext?.hasSummaries && conversationContext?.summaryContext) {
+      conversationSummaryContext = conversationContext.summaryContext;
+      console.log('📜 Including conversation summary from hierarchical memory');
+    }
 
     const systemPrompt = `You are Researchella, an intelligent academic research assistant specializing in analyzing and discussing academic papers.
+${conversationSummaryContext}
 
-${modeInstructions}
+RESPONSE STYLE:
+- Provide clear, complete, and helpful answers
+- Be thorough but concise - cover what's needed without unnecessary padding
+- Use citations to support your points
+- Structure responses well with headings/bullets when appropriate
+- If a user asks to be quizzed or wants guided learning, adapt to that request naturally
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️  ABSOLUTE RULES - FOLLOW WITHOUT EXCEPTION:
@@ -338,8 +335,33 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
       }
     }
 
+    // Normalize image_url objects in messages to have detail parameter
+    // This helps reduce token usage for user-uploaded chat images
+    const normalizeImageMessages = (msgs) => {
+      return msgs.map(msg => {
+        if (Array.isArray(msg.content)) {
+          return {
+            ...msg,
+            content: msg.content.map(item => {
+              if (item.type === 'image_url' && item.image_url) {
+                return {
+                  type: 'image_url',
+                  image_url: {
+                    url: item.image_url.url,
+                    detail: item.image_url.detail || 'auto' // Use 'auto' to let OpenAI decide, saves tokens
+                  }
+                };
+              }
+              return item;
+            })
+          };
+        }
+        return msg;
+      });
+    };
+
     // Build messages array with images if available
-    let finalMessages = [...messages];
+    let finalMessages = normalizeImageMessages([...messages]);
     if (imageDataList.length > 0) {
       // Add images to the last user message
       const lastMsgIndex = finalMessages.length - 1;
@@ -549,6 +571,22 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
     });
   } catch (error) {
     console.error('OpenAI API error:', error);
+
+    // Handle rate limit / token limit errors
+    if (error.code === 'rate_limit_exceeded' || error.status === 429) {
+      const errorMessage = error.message || '';
+      if (errorMessage.includes('tokens') || errorMessage.includes('TPM')) {
+        return res.status(429).json({
+          error: 'Your request is too large. Try asking about a specific topic or use @filename to query one document at a time.',
+          details: 'Token limit exceeded'
+        });
+      }
+      return res.status(429).json({
+        error: 'Too many requests. Please wait a moment and try again.',
+        details: 'Rate limit exceeded'
+      });
+    }
+
     res.status(500).json({ error: 'Failed to get response from AI' });
   }
 }

@@ -6,8 +6,8 @@ export default function SignInPage() {
   return (
     <>
       <Head>
-        <title>Sign In - PaperSage</title>
-        <meta name="description" content="Sign in to PaperSage" />
+        <title>Sign In - Researchella</title>
+        <meta name="description" content="Sign in to Researchella" />
       </Head>
 
       <Box
@@ -24,7 +24,7 @@ export default function SignInPage() {
             {/* Header */}
             <VStack gap={2} textAlign="center">
               <Heading size="2xl" color="blue.500">
-                PaperSage
+                Researchella
               </Heading>
               <Text color="gray.600" _dark={{ color: 'gray.400' }} fontSize="lg">
                 Your AI Research Assistant

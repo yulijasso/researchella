@@ -6,8 +6,8 @@ export default function SignUpPage() {
   return (
     <>
       <Head>
-        <title>Sign Up - PaperSage</title>
-        <meta name="description" content="Create your PaperSage account" />
+        <title>Sign Up - Researchella</title>
+        <meta name="description" content="Create your Researchella account" />
       </Head>
 
       <Box
@@ -24,7 +24,7 @@ export default function SignUpPage() {
             {/* Header */}
             <VStack gap={2} textAlign="center">
               <Heading size="2xl" color="blue.500">
-                PaperSage
+                Researchella
               </Heading>
               <Text color="gray.600" _dark={{ color: 'gray.400' }} fontSize="lg">
                 Your AI Research Assistant

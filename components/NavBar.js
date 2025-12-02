@@ -24,7 +24,7 @@ export default function NavBar() {
           <Box cursor="pointer" onClick={() => router.push("/")}>
             <Image
               src="/logo.png"
-              alt="PaperSage"
+              alt="Researchella"
               width={140}
               height={40}
               style={{ objectFit: "contain" }}

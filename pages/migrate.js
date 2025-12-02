@@ -158,7 +158,7 @@ export default function Migrate() {
   return (
     <>
       <Head>
-        <title>Migrate to Supabase - PaperSage</title>
+        <title>Migrate to Supabase - Researchella</title>
         <meta name="description" content="Migrate your data to Supabase" />
       </Head>
 

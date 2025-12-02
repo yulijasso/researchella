@@ -12,6 +12,13 @@ import { cleanPDFText } from "../../lib/intelligentTextCleaner";
 
 const execPromise = promisify(exec);
 
+// Get Python path at runtime to avoid Turbopack static analysis of venv symlinks
+function getPythonPath() {
+  // Construct path at runtime using array join to prevent static analysis
+  const parts = [process.cwd(), 'venv', 'bin', 'python3'];
+  return parts.join(path.sep);
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -392,7 +399,7 @@ async function processPDFFast(filePath, fileName, fileSize) {
 
   try {
     const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber_parallel.py');
-    const pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+    const pythonPath = getPythonPath();
 
     // Execute Python script
     const { stdout, stderr } = await execPromise(
@@ -452,7 +459,7 @@ async function processPDF(filePath, fileName) {
 
       // Path to Python script - use parallel version for better performance
       const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber_parallel.py');
-      const pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+      const pythonPath = getPythonPath();
 
       // Execute Python script with increased buffer for large PDFs
       const { stdout, stderr } = await execPromise(
@@ -516,7 +523,7 @@ async function processPDF(filePath, fileName) {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_pymupdf.py');
-      const pythonPath = path.join(process.cwd(), 'venv', 'bin', 'python3');
+      const pythonPath = getPythonPath();
 
       // Execute Python script with increased buffer
       const { stdout, stderr } = await execPromise(
@@ -918,8 +925,8 @@ export default async function handler(req, res) {
     const form = formidable({
       uploadDir,
       keepExtensions: true,
-      maxFileSize: 100 * 1024 * 1024, // 100MB per file - supports medical textbooks
-      maxTotalFileSize: 500 * 1024 * 1024, // 500MB total for up to 50 files
+      maxFileSize: 1024 * 1024 * 1024 * 1024, // 1TB per file
+      maxTotalFileSize: 1024 * 1024 * 1024 * 1024, // 1TB total
       maxFiles: 50, // Allow up to 50 files
       multiples: false, // Single file upload
       allowEmptyFiles: false,

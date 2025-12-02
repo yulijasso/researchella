@@ -102,7 +102,7 @@ class PDFTextCleaner:
 
             # More aggressive splitting for concatenated words
             # Split words that are too long OR have common patterns
-            if (len(word) > 12 and word.isalpha()) or re.search(r'(on|of|for|to|with|from|by|at|in)[A-Z]', word):
+            if (len(word) > 8 and word.isalpha()) or re.search(r'(on|of|for|to|with|from|by|at|in|the|a|an|is|are|was|were|and|or)[A-Z]', word):
                 split_words = wordninja.split(word.lower())
                 if len(split_words) > 1:
                     # Check if split makes sense
@@ -123,7 +123,18 @@ class PDFTextCleaner:
                          'nation', 'station', 'creation', 'relation', 'operation', 'generation',
                          'information', 'education', 'population', 'organization', 'administration']
 
+            # Also check for common prefixes (Section3, Table1, Figure2, etc.)
+            common_word_prefixes = ['section', 'table', 'figure', 'chapter', 'appendix',
+                                   'equation', 'theorem', 'lemma', 'algorithm', 'step']
+
             if any(word.lower().endswith(exc) for exc in exceptions):
+                fixed_words.append(word)
+                continue
+
+            # Skip pattern matching for words starting with common prefixes followed by numbers
+            if any(word.lower().startswith(prefix) and len(word) > len(prefix) and
+                   (word[len(prefix)].isdigit() or word[len(prefix)] == '.')
+                   for prefix in common_word_prefixes):
                 fixed_words.append(word)
                 continue
 
@@ -187,7 +198,113 @@ class PDFTextCleaner:
             else:
                 fixed_words.append(word)
 
-        return ' '.join(fixed_words)
+        # Second pass: aggressive wordninja on ALL words > 6 chars
+        final_words = []
+        for word in fixed_words:
+            # Skip short words
+            if len(word) <= 6:
+                final_words.append(word)
+                continue
+
+            # Handle words with hyphens - split and process each part
+            if '-' in word:
+                parts = word.split('-')
+                processed_parts = []
+                for part in parts:
+                    if len(part) > 6 and part.isalpha():
+                        split_part = wordninja.split(part.lower())
+                        if len(split_part) > 1 and all(len(w) >= 2 or w in {'a', 'i'} for w in split_part):
+                            processed_parts.append(' '.join(split_part))
+                        else:
+                            processed_parts.append(part)
+                    else:
+                        processed_parts.append(part)
+                final_words.append('-'.join(processed_parts))
+                continue
+
+            # Handle words with numbers/punctuation - extract alpha parts
+            if not word.isalpha():
+                # Common words that appear with numbers (Table1, Section3, Figure2)
+                common_prefixes = {'table', 'section', 'figure', 'chapter', 'appendix',
+                                   'equation', 'theorem', 'lemma', 'algorithm', 'step'}
+
+                # Split on non-alpha, process each alpha segment
+                import re as re_inner
+                segments = re_inner.split(r'([^a-zA-Z]+)', word)
+                processed_segments = []
+                for i, seg in enumerate(segments):
+                    if seg.isalpha():
+                        # Skip common prefixes (Table, Section, etc.) - check BEFORE length
+                        if seg.lower() in common_prefixes:
+                            processed_segments.append(seg)
+                            continue
+
+                        # Only try splitting if long enough
+                        if len(seg) > 6:
+                            split_seg = wordninja.split(seg.lower())
+                            if len(split_seg) > 1 and all(len(w) >= 2 or w in {'a', 'i'} for w in split_seg):
+                                if seg[0].isupper():
+                                    split_seg[0] = split_seg[0].capitalize()
+                                processed_segments.append(' '.join(split_seg))
+                            else:
+                                processed_segments.append(seg)
+                        else:
+                            processed_segments.append(seg)
+                    else:
+                        processed_segments.append(seg)
+
+                # Join and add space after numbers followed by lowercase
+                result = ''.join(processed_segments)
+                result = re.sub(r'(\d)([a-z])', r'\1 \2', result)
+                final_words.append(result)
+                continue
+
+            # Common valid long words that shouldn't be split
+            common_long_words = {
+                'through', 'another', 'because', 'between', 'however', 'without',
+                'against', 'during', 'before', 'after', 'should', 'would', 'could',
+                'their', 'there', 'where', 'which', 'while', 'about', 'these',
+                'those', 'being', 'having', 'doing', 'going', 'making', 'taking',
+                'coming', 'getting', 'looking', 'finding', 'using', 'showing',
+                'following', 'including', 'according', 'regarding', 'concerning',
+                'performance', 'information', 'implementation', 'representation',
+                'classification', 'generation', 'evaluation', 'optimization',
+                'understanding', 'processing', 'learning', 'training', 'testing',
+                'network', 'networks', 'dataset', 'datasets', 'method', 'methods',
+                'model', 'models', 'result', 'results', 'approach', 'approaches',
+                'system', 'systems', 'problem', 'problems', 'solution', 'solutions',
+                'experiment', 'experiments', 'analysis', 'different', 'important',
+                'significant', 'previous', 'proposed', 'existing', 'various',
+                'section', 'sections', 'table', 'tables', 'figure', 'figures',
+                'chapter', 'chapters', 'appendix', 'abstract', 'introduction',
+                'conclusion', 'conclusions', 'reference', 'references', 'equation',
+                'theorem', 'lemma', 'proof', 'definition', 'algorithm', 'baseline',
+                'benchmark', 'parameter', 'parameters', 'architecture', 'feature',
+                'features', 'attention', 'transformer', 'embedding', 'embeddings',
+            }
+
+            if word.lower() in common_long_words:
+                final_words.append(word)
+                continue
+
+            # Try splitting with wordninja
+            split_attempt = wordninja.split(word.lower())
+
+            # Allow single-letter words if they're common (a, I)
+            valid_single = {'a', 'i'}
+
+            # Accept split if it produces 2+ words, each at least 2 chars (or is valid single)
+            if len(split_attempt) > 1 and all(len(w) >= 2 or w in valid_single for w in split_attempt):
+                # Verify the split makes sense (each part should have vowels, or be valid single)
+                if all(any(c in 'aeiou' for c in part) or part in valid_single for part in split_attempt):
+                    if word[0].isupper():
+                        split_attempt[0] = split_attempt[0].capitalize()
+                    final_words.extend(split_attempt)
+                    continue
+
+            final_words.append(word)
+
+        return ' '.join(final_words)
 
     def fix_split_words(self, text):
         """Fix words that have been incorrectly split"""
@@ -200,7 +317,146 @@ class PDFTextCleaner:
         # e.g., "t he" -> "the", "w ith" -> "with"
         text = re.sub(r'\b([a-z])\s+([a-z]{2,})\b', self._check_single_letter_split, text)
 
+        # Fix severely fragmented words (OCR errors)
+        # e.g., "c or respondin g" -> "corresponding"
+        text = self._fix_fragmented_words(text)
+
+        # Fix incomplete suffixes (e.g., "respondin g" -> "responding")
+        text = self._fix_incomplete_suffixes(text)
+
         return text
+
+    def _fix_incomplete_suffixes(self, text):
+        """Fix words with incomplete suffixes followed by missing letters"""
+        words = text.split()
+        if len(words) < 2:
+            return text
+
+        result = []
+        i = 0
+
+        # Common incomplete suffix patterns and their completions
+        suffix_patterns = [
+            ('in', 'g'),      # respondin g -> responding
+            ('in', 'gs'),     # thin gs -> things
+            ('ti', 'on'),     # na ti on -> nation
+            ('ti', 'ng'),     # ea ti ng -> eating
+            ('si', 'on'),     # vi si on -> vision
+            ('ed', 'ly'),     # quick ed ly -> quickly (rare but possible)
+        ]
+
+        while i < len(words):
+            word = words[i]
+            merged = False
+
+            if i + 1 < len(words):
+                next_word = words[i + 1]
+
+                # Check if current word ends with incomplete suffix and next starts with completion
+                for incomplete, completion in suffix_patterns:
+                    if (word.lower().endswith(incomplete) and
+                        next_word.lower().startswith(completion[0]) and
+                        len(next_word) <= 3):
+
+                        # Try combining
+                        combined = word + next_word
+
+                        # Verify it makes a valid word
+                        split_result = wordninja.split(combined.lower())
+                        if len(split_result) == 1 or (len(split_result) == 2 and len(split_result[0]) >= 6):
+                            # Check if the combined form is better
+                            if len(split_result[0]) > len(word):
+                                result.append(split_result[0] if word[0].islower() else split_result[0].capitalize())
+                                if len(split_result) > 1:
+                                    result.extend(split_result[1:])
+                                i += 2
+                                merged = True
+                                break
+
+            if not merged:
+                result.append(word)
+                i += 1
+
+        return ' '.join(result)
+
+    def _fix_fragmented_words(self, text):
+        """Fix words that have been split into multiple fragments"""
+        # Run multiple passes to handle nested fragmentation
+        for _ in range(3):
+            text = self._fix_fragmented_words_pass(text)
+        return text
+
+    def _fix_fragmented_words_pass(self, text):
+        """Single pass of fragment fixing"""
+        words = text.split()
+        if len(words) < 2:
+            return text
+
+        result = []
+        i = 0
+
+        while i < len(words):
+            word = words[i]
+
+            # Look for short fragments that might be parts of split words
+            if len(word) <= 4 and word.isalpha() and i + 1 < len(words):
+                # Try combining with next word(s) - find the BEST combination
+                best_combination = None
+                best_j = i
+                best_score = 0
+
+                # Try combining 2-8 consecutive words (increased from 6)
+                for num_words in range(2, min(9, len(words) - i + 1)):
+                    fragment_slice = words[i:i + num_words]
+
+                    # All fragments should be alpha
+                    if not all(w.isalpha() for w in fragment_slice):
+                        break
+
+                    # At least one should be very short (likely a fragment)
+                    if not any(len(w) <= 3 for w in fragment_slice):
+                        continue
+
+                    combined = ''.join(fragment_slice)
+
+                    # Skip if combined is too short
+                    if len(combined) < 5:
+                        continue
+
+                    # Check with wordninja
+                    split_result = wordninja.split(combined.lower())
+
+                    # Good combination if wordninja produces fewer, longer words
+                    if len(split_result) < len(fragment_slice):
+                        # Score based on reduction ratio and average word length
+                        reduction = len(fragment_slice) - len(split_result)
+                        avg_new_len = sum(len(w) for w in split_result) / len(split_result)
+
+                        # Prefer combinations that produce real words (no single chars)
+                        has_single_chars = any(len(w) == 1 and w not in 'ai' for w in split_result)
+                        if has_single_chars:
+                            continue
+
+                        # Score: prioritize larger reductions and longer words
+                        score = reduction * 10 + avg_new_len
+
+                        if score > best_score:
+                            best_score = score
+                            best_combination = split_result
+                            best_j = i + num_words
+
+                if best_combination:
+                    # Preserve capitalization
+                    if words[i][0].isupper():
+                        best_combination[0] = best_combination[0].capitalize()
+                    result.extend(best_combination)
+                    i = best_j
+                    continue
+
+            result.append(word)
+            i += 1
+
+        return ' '.join(result)
 
     def _check_single_letter_split(self, match):
         """Check if single letter should be combined with following word"""

@@ -51,20 +51,21 @@ export default async function handler(req, res) {
     let exportMimeType = mimeType;
     let isGoogleWorkspaceFile = false;
 
-    // Google Workspace files need to be exported to Office formats
+    // Google Workspace files - use DIRECT EXPORT URLs (bypasses 10MB API limit!)
+    // Reference: https://stackoverflow.com/questions/50612407/strategies-to-googledrive-api-limit-export-download-10-mb
     if (mimeType === 'application/vnd.google-apps.document') {
-      // Google Docs -> export as docx
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.wordprocessingml.document`;
+      // Google Docs -> export as docx via direct URL (no size limit)
+      downloadUrl = `https://docs.google.com/document/d/${fileId}/export?format=docx`;
       exportMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       isGoogleWorkspaceFile = true;
     } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      // Google Sheets -> export as xlsx
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
+      // Google Sheets -> export as xlsx via direct URL (no size limit)
+      downloadUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`;
       exportMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
       isGoogleWorkspaceFile = true;
     } else if (mimeType === 'application/vnd.google-apps.presentation') {
-      // Google Slides -> export as pptx
-      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.presentationml.presentation`;
+      // Google Slides -> export as pptx via direct URL (no size limit)
+      downloadUrl = `https://docs.google.com/presentation/d/${fileId}/export/pptx`;
       exportMimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
       isGoogleWorkspaceFile = true;
     } else {
@@ -82,8 +83,129 @@ export default async function handler(req, res) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Google Drive API error:', errorText);
+
+      // Check if it's a size limit error for Google Docs
+      let isSizeLimitError = false;
+      try {
+        const errorJson = JSON.parse(errorText);
+        isSizeLimitError = errorJson.error?.reason === 'exportSizeLimitExceeded' ||
+                          errorJson.error?.message?.includes('too large to be exported');
+      } catch (e) {}
+
+      // For large Google Docs, try using the Google Docs API to read content directly
+      if (isSizeLimitError && mimeType === 'application/vnd.google-apps.document') {
+        console.log('📄 Export failed due to size limit. Trying Google Docs API...');
+
+        try {
+          const docsApiUrl = `https://docs.googleapis.com/v1/documents/${fileId}`;
+          const docsResponse = await fetch(docsApiUrl, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          });
+
+          if (docsResponse.ok) {
+            const docData = await docsResponse.json();
+
+            // Extract text content from Google Docs JSON structure
+            let extractedContent = '';
+
+            const extractText = (elements) => {
+              if (!elements) return;
+              for (const element of elements) {
+                if (element.paragraph) {
+                  for (const elem of element.paragraph.elements || []) {
+                    if (elem.textRun?.content) {
+                      extractedContent += elem.textRun.content;
+                    }
+                  }
+                }
+                if (element.table) {
+                  for (const row of element.table.tableRows || []) {
+                    for (const cell of row.tableCells || []) {
+                      extractText(cell.content);
+                    }
+                  }
+                }
+              }
+            };
+
+            extractText(docData.body?.content);
+
+            if (extractedContent.trim().length > 0) {
+              console.log(`✅ Extracted ${extractedContent.length} characters via Google Docs API`);
+
+              // Process the extracted content
+              const textSplitter = new RecursiveCharacterTextSplitter({
+                chunkSize: 1000,
+                chunkOverlap: 200,
+              });
+
+              const chunks = await textSplitter.splitText(extractedContent);
+              console.log(`✂️ Split into ${chunks.length} chunks`);
+
+              // Add to vector store
+              await addDocumentsToStore(
+                chunks.map(chunk => ({
+                  content: chunk,
+                  metadata: {
+                    source: fileName,
+                    type: 'google-drive',
+                    fileId: fileId,
+                    mimeType: mimeType,
+                  }
+                })),
+                sessionId,
+                userId
+              );
+
+              // Save to database
+              const { data: fileData, error: dbError } = await supabase
+                .from('uploaded_files')
+                .insert({
+                  user_id: userId,
+                  session_id: sessionId,
+                  name: `${fileName}||gdrive:${fileId}`,
+                  type: 'google-drive',
+                  chunks: chunks.length,
+                })
+                .select()
+                .single();
+
+              if (dbError) {
+                console.error('Database error:', dbError);
+                throw dbError;
+              }
+
+              console.log(`✅ Successfully added large Google Doc: ${fileName}`);
+
+              return res.status(200).json({
+                success: true,
+                chunks: chunks.length,
+                fileId: fileData.id,
+                fileName: fileName,
+                isPdf: false,
+              });
+            }
+          }
+        } catch (docsApiError) {
+          console.error('Google Docs API fallback error:', docsApiError);
+        }
+      }
+
+      // If we get here, we couldn't handle it
+      let errorMessage = 'Failed to download file from Google Drive';
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (isSizeLimitError) {
+          errorMessage = `This Google Docs file is too large to export. Please download it manually from Google Drive as PDF and upload directly.`;
+        } else if (errorJson.error?.message) {
+          errorMessage = errorJson.error.message;
+        }
+      } catch (e) {}
+
       return res.status(400).json({
-        error: 'Failed to download file from Google Drive',
+        error: errorMessage,
         details: errorText
       });
     }

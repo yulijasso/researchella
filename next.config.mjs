@@ -23,9 +23,9 @@ const nextConfig = {
   // Allow large file uploads (default is 10MB)
   experimental: {
     serverActions: {
-      bodySizeLimit: '100mb',
+      bodySizeLimit: '1tb',
     },
-    proxyClientMaxBodySize: '100mb',
+    proxyClientMaxBodySize: '1tb',
   },
 };
 

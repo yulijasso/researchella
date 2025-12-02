@@ -94,7 +94,7 @@ export default function DocumentViewer() {
   return (
     <>
       <Head>
-        <title>{document.name} - PaperSage</title>
+        <title>{document.name} - Researchella</title>
         <meta name="description" content="Document viewer" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </Head>

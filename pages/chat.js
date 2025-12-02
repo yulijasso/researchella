@@ -24,7 +24,7 @@ import {
   InputGroup,
 } from "@chakra-ui/react";
 import Image from "next/image";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2, FiUser } from "react-icons/fi";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2, FiUser, FiSave, FiHelpCircle, FiCheckCircle, FiDownload } from "react-icons/fi";
 import { SiGoogledrive } from "react-icons/si";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useColorMode } from "@/components/ui/color-mode";
@@ -72,14 +72,17 @@ export default function Chat() {
   const [pdfViewerVisible, setPdfViewerVisible] = useState(false);
   const [currentPdfData, setCurrentPdfData] = useState(null);
   const [currentPdfPage, setCurrentPdfPage] = useState(1);
+  const [showSessionLimitModal, setShowSessionLimitModal] = useState(false);
   const [currentHighlightText, setCurrentHighlightText] = useState("");
-  const [tutoringMode, setTutoringMode] = useState("direct"); // "direct" or "interactive"
   const [showUploadInterface, setShowUploadInterface] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [podcastAudio, setPodcastAudio] = useState(null);
   const [podcastScript, setPodcastScript] = useState(null);
   const [isGeneratingPodcast, setIsGeneratingPodcast] = useState(false);
   const [showPodcastPlayer, setShowPodcastPlayer] = useState(false);
+  const [videoOverview, setVideoOverview] = useState(null);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [savedMaterials, setSavedMaterials] = useState([]); // Array of all generated materials
   const [webSearchQuery, setWebSearchQuery] = useState(""); // Web search query
   const [webSearchResults, setWebSearchResults] = useState([]); // Web search results
@@ -194,7 +197,7 @@ export default function Chat() {
       // Request access token
       const tokenClient = window.google.accounts.oauth2.initTokenClient({
         client_id: GOOGLE_CLIENT_ID,
-        scope: 'https://www.googleapis.com/auth/drive.readonly',
+        scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/documents.readonly',
         callback: async (tokenResponse) => {
           if (tokenResponse.error) {
             console.error('Token error:', tokenResponse);
@@ -480,10 +483,30 @@ export default function Chat() {
           const messagesResponse = await fetch(`/api/messages?session_id=${sessionId}`);
           if (messagesResponse.ok) {
             const { messages: loadedMessages } = await messagesResponse.json();
-            setMessages(loadedMessages || []);
+
+            // Parse message content if it's a JSON string (for messages with images)
+            const parsedMessages = (loadedMessages || []).map(msg => {
+              // Already an array (Supabase jsonb column)
+              if (Array.isArray(msg.content)) {
+                return msg;
+              }
+              // String that looks like JSON array
+              if (typeof msg.content === 'string' && msg.content.startsWith('[')) {
+                try {
+                  const parsed = JSON.parse(msg.content);
+                  return { ...msg, content: parsed };
+                } catch (e) {
+                  // Not valid JSON, keep as string
+                  return msg;
+                }
+              }
+              return msg;
+            });
+
+            setMessages(parsedMessages);
 
             // Extract citations from loaded messages
-            const citations = loadedMessages
+            const citations = parsedMessages
               .filter(m => m.citations)
               .flatMap(m => m.citations);
             setAllCitations(citations);
@@ -755,7 +778,7 @@ export default function Chat() {
 
     // Check file size before uploading
     const fileSizeMB = file.size / (1024 * 1024);
-    const maxSizeMB = 100;
+    const maxSizeMB = 1024 * 1024; // 1TB
 
     if (fileSizeMB > maxSizeMB) {
       toaster.create({
@@ -985,6 +1008,32 @@ export default function Chat() {
     setIsEditingSessionName(false);
   };
 
+  // Create a new session and redirect to it
+  const handleStartNewSession = async () => {
+    try {
+      const newSessionId = Date.now().toString();
+      const response = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newSessionId,
+          name: `Research Session ${new Date().toLocaleDateString()}`,
+        }),
+      });
+
+      if (response.ok) {
+        setShowSessionLimitModal(false);
+        router.push(`/chat?session=${newSessionId}`);
+      } else {
+        // Fallback: just go to sessions page
+        router.push('/sessions');
+      }
+    } catch (error) {
+      console.error('Error creating new session:', error);
+      router.push('/sessions');
+    }
+  };
+
   // Handle file rename
   const handleFileRename = async (index) => {
     if (!renameFileValue.trim() || renameFileValue === uploadedFiles[index].name) {
@@ -1201,6 +1250,7 @@ export default function Chat() {
       const uploadPromises = files.map(async (file) => {
         const formData = new FormData();
         formData.append("image", file);
+        formData.append("sessionId", sessionId); // Pass sessionId to save to database
 
         const response = await fetch("/api/upload-image", {
           method: "POST",
@@ -1216,15 +1266,33 @@ export default function Chat() {
           url: data.url,
           base64: data.base64,
           fileName: data.fileName,
+          fileId: data.fileId,
+          type: 'image',
+          pdf_data: data.base64, // For viewing in sources
         };
       });
 
       const uploadedImages = await Promise.all(uploadPromises);
       setSelectedImages([...selectedImages, ...uploadedImages]);
 
+      // Add images to sources panel
+      const newSourceFiles = uploadedImages
+        .filter(img => img.fileId) // Only add if saved to database
+        .map(img => ({
+          id: img.fileId,
+          name: img.fileName,
+          type: 'image',
+          chunks: 1,
+          pdf_data: img.base64,
+        }));
+
+      if (newSourceFiles.length > 0) {
+        setUploadedFiles(prev => [...prev, ...newSourceFiles]);
+      }
+
       toaster.create({
-        title: "Images Uploaded",
-        description: `${uploadedImages.length} image(s) ready to send`,
+        title: "Images Added",
+        description: `${uploadedImages.length} image(s) added to sources`,
         type: "success",
         duration: 3000,
       });
@@ -1402,8 +1470,8 @@ export default function Chat() {
       console.log('✅ Podcast saved to materials');
 
       toaster.create({
-        title: "Podcast Ready!",
-        description: `Your ${data.fileCount}-source study podcast is ready to play`,
+        title: "Audio Overview Ready!",
+        description: `Your ${data.fileCount}-source audio overview is ready to play`,
         type: "success",
         duration: 3000,
       });
@@ -1411,13 +1479,75 @@ export default function Chat() {
       console.error('❌ Podcast generation error:', error);
       toaster.create({
         title: "Generation Failed",
-        description: error.message || "Could not generate podcast",
+        description: error.message || "Could not generate audio overview",
         type: "error",
         duration: 5000,
       });
     } finally {
       setIsGeneratingPodcast(false);
       console.log('🏁 Podcast generation finished');
+    }
+  };
+
+  const generateVideoOverview = async () => {
+    console.log('🎬 Video Overview button clicked');
+    setIsGeneratingVideo(true);
+
+    try {
+      console.log('📡 Calling video overview API...');
+      const response = await fetch('/api/generate-video-overview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId,
+          style: 'modern',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate video overview');
+      }
+
+      const data = await response.json();
+      console.log('✅ Video Overview data received');
+
+      setVideoOverview({
+        videoUrl: data.videoUrl,
+        script: data.script,
+      });
+      setShowVideoPlayer(true);
+
+      // Save to materials
+      const newMaterial = {
+        id: Date.now(),
+        type: 'video',
+        videoUrl: data.videoUrl,
+        script: data.script,
+        slideCount: data.slideCount,
+        timestamp: new Date(),
+      };
+      setSavedMaterials([newMaterial, ...savedMaterials]);
+
+      toaster.create({
+        title: "Video Overview Ready!",
+        description: `Your ${data.slideCount}-slide video overview is ready to play`,
+        type: "success",
+        duration: 3000,
+      });
+    } catch (error) {
+      console.error('❌ Video generation error:', error);
+      toaster.create({
+        title: "Generation Failed",
+        description: error.message || "Could not generate video overview",
+        type: "error",
+        duration: 5000,
+      });
+    } finally {
+      setIsGeneratingVideo(false);
+      console.log('🏁 Video generation finished');
     }
   };
 
@@ -1712,10 +1842,9 @@ export default function Chat() {
                 px={3}
                 py={2}
                 bg="gray.50"
-                _dark={{ bg: "gray.900" }}
                 borderBottom="1px solid"
                 borderColor="gray.200"
-                _dark={{ borderColor: "gray.700" }}
+                _dark={{ bg: "gray.900", borderColor: "gray.700" }}
               >
                 <FiFile size="10px" />
                 <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
@@ -2198,13 +2327,34 @@ export default function Chat() {
           })),
           useRAG: uploadedFiles.length > 0, // Only use RAG if documents are uploaded
           sessionId: sessionId,  // Pass session ID to backend
-          tutoringMode: tutoringMode,  // Pass tutoring mode for personalized responses
           mentionedSources: mentions.length > 0 ? mentions : null, // Pass @mentioned PDFs
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to get response");
+        // Check for 413 Payload Too Large - this means request body is too big
+        if (response.status === 413) {
+          setShowSessionLimitModal(true);
+          setMessages(messages); // Remove the failed message
+          setIsLoading(false);
+          return;
+        }
+
+        const errorData = await response.json().catch(() => ({}));
+
+        // Check for token/size related errors from API
+        const errorMsg = errorData.error || "";
+        if (errorMsg.toLowerCase().includes('too large') ||
+            errorMsg.toLowerCase().includes('token') ||
+            errorMsg.toLowerCase().includes('limit') ||
+            response.status === 429) {
+          setShowSessionLimitModal(true);
+          setMessages(messages);
+          setIsLoading(false);
+          return;
+        }
+
+        throw new Error(errorData.error || "Failed to get response");
       }
 
       const data = await response.json();
@@ -2284,10 +2434,20 @@ export default function Chat() {
       // Check if request was aborted due to session switch
       if (error.name === 'AbortError') {
         console.log('Request cancelled due to session switch');
-        return; // Don't update messages or show error
+        return;
       }
 
       console.error("Error sending message:", error);
+
+      // Check if this is a token/size related error (backup check)
+      const errorMsg = error.message?.toLowerCase() || '';
+      if (errorMsg.includes('too large') || errorMsg.includes('token') || errorMsg.includes('limit') || errorMsg.includes('413')) {
+        setShowSessionLimitModal(true);
+        setMessages(messages);
+        setIsLoading(false);
+        return;
+      }
+
       setMessages([
         ...newMessages,
         {
@@ -2303,6 +2463,69 @@ export default function Chat() {
 
   return (
     <>
+      {/* Session Limit Modal - Minimalistic Design */}
+      {showSessionLimitModal && (
+        <Box
+          position="fixed"
+          top="0"
+          left="0"
+          right="0"
+          bottom="0"
+          bg="blackAlpha.500"
+          zIndex="9999"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          onClick={() => setShowSessionLimitModal(false)}
+        >
+          <Box
+            bg="white"
+            _dark={{ bg: "gray.800" }}
+            borderRadius="lg"
+            p={6}
+            maxW="340px"
+            w="90%"
+            textAlign="center"
+            boxShadow="lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Text fontWeight="500" fontSize="md" mb={2} color="gray.800" _dark={{ color: "gray.100" }}>
+              Session limit reached
+            </Text>
+
+            <Text color="gray.500" _dark={{ color: "gray.400" }} fontSize="sm" mb={5}>
+              Start a new notebook to continue.
+            </Text>
+
+            <VStack gap={2}>
+              <Button
+                bg="gray.900"
+                color="white"
+                _hover={{ bg: "gray.800" }}
+                _dark={{ bg: "white", color: "gray.900", _hover: { bg: "gray.100" } }}
+                size="md"
+                w="full"
+                borderRadius="md"
+                fontWeight="500"
+                onClick={handleStartNewSession}
+              >
+                New Notebook
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                color="gray.400"
+                fontWeight="400"
+                onClick={() => setShowSessionLimitModal(false)}
+              >
+                Dismiss
+              </Button>
+            </VStack>
+          </Box>
+        </Box>
+      )}
+
       <Head>
         <title>Chat - Researchella</title>
         <meta name="description" content="Chat with Researchella AI" />
@@ -2566,8 +2789,8 @@ export default function Chat() {
                               <FiFile size={16} color="#4F46E5" />
                             )}
                           </Box>
-                          <VStack align="start" gap={0} flex={1} minW={0}>
-                            <HStack gap={1}>
+                          <VStack align="start" gap={0} flex={1} minW={0} overflow="hidden">
+                            <HStack gap={1} minW={0} maxW="100%">
                               {editingSourceIndex === idx ? (
                                 <Input
                                   value={editingSourceValue}
@@ -2593,13 +2816,14 @@ export default function Chat() {
                                   fontWeight="600"
                                   noOfLines={2}
                                   cursor="text"
+                                  wordBreak="break-word"
                                   _hover={{ textDecoration: "underline", textDecorationStyle: "dotted" }}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setEditingSourceValue(getDisplayName(file));
                                     setEditingSourceIndex(idx);
                                   }}
-                                  title="Click to rename"
+                                  title={`${getDisplayName(file)} (click to rename)`}
                                 >
                                   {getDisplayName(file)}
                                 </Text>
@@ -2633,24 +2857,25 @@ export default function Chat() {
                             )}
                           </VStack>
                           {!file.isProcessing && (
-                            <IconButton
-                              icon={<FiX />}
-                              size="sm"
-                              variant="ghost"
-                              aria-label="Delete file"
+                            <Box
+                              as="button"
                               position="absolute"
                               top={2}
                               right={2}
+                              p={1}
+                              cursor="pointer"
+                              color="gray.400"
+                              _dark={{ color: "gray.500" }}
+                              _hover={{ color: "red.500", _dark: { color: "red.400" } }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteFile(idx);
                               }}
-                              color="black"
-                              _hover={{ color: "red.600", bg: "red.50" }}
-                              _dark={{ color: "gray.300", _hover: { color: "red.400", bg: "red.900" } }}
+                              aria-label="Delete file"
                               zIndex={10}
-                              fontSize="16px"
-                            />
+                            >
+                              <FiX size={14} />
+                            </Box>
                           )}
                         </HStack>
 
@@ -2737,10 +2962,12 @@ export default function Chat() {
         ) : (
           /* Collapsed Sources Panel Toggle */
           <Box
+            w="40px"
+            minW="40px"
             display={{ base: "none", lg: "flex" }}
             alignItems="flex-start"
+            justifyContent="center"
             pt={4}
-            pl={2}
           >
             <IconButton
               aria-label="Show sources panel"
@@ -2852,7 +3079,7 @@ export default function Chat() {
                       {uploadedFiles.map((file, index) => (
                         <HStack key={index} gap={2} p={2} borderRadius="md" bg="gray.50" _dark={{ bg: "gray.800", borderColor: "gray.700" }} border="1px solid" borderColor="transparent" position="relative" role="group">
                           <FiFile size={16} />
-                          <VStack align="start" gap={0} flex={1}>
+                          <VStack align="start" gap={0} flex={1} minW={0} overflow="hidden">
                             {renameFileIndex === index ? (
                               <Input
                                 value={renameFileValue}
@@ -2864,7 +3091,7 @@ export default function Chat() {
                                 fontSize="sm"
                               />
                             ) : (
-                              <Text fontSize="sm" noOfLines={1}>{getDisplayName(file)}</Text>
+                              <Text fontSize="sm" noOfLines={1} maxW="100%" overflow="hidden" textOverflow="ellipsis" whiteSpace="nowrap" title={getDisplayName(file)}>{getDisplayName(file)}</Text>
                             )}
                             {file.chunks && (
                               <Text fontSize="xs" color="gray.500">{file.chunks} chunks</Text>
@@ -2943,10 +3170,8 @@ export default function Chat() {
           flex={1}
           direction="column"
           overflow="hidden"
-          maxW={{
-            lg: `calc(100vw - ${(showSourcesPanel ? 320 : 40) + (showStudioPanel ? 320 : 40)}px)`
-          }}
           minW={0}
+          transition="all 0.3s ease"
         >
           {/* Header */}
           <Flex
@@ -3075,13 +3300,23 @@ export default function Chat() {
             bg="gray.50"
             _dark={{ bg: "gray.950" }}
           >
-            <Container maxW="container.lg">
-              {messages.length === 0 ? (
+            <Container maxW="container.lg" mx="auto">
+              {showUploadInterface ? (
+                // Document upload interface - NotebookLM style (shown inline when Add Sources clicked)
                 <VStack gap={8} align="center" py={10}>
-                  {uploadedFiles.length === 0 ? (
-                    // Document upload interface - NotebookLM style
-                    <>
-                      <Box
+                  {/* Back button to return to chat */}
+                  {(messages.length > 0 || uploadedFiles.length > 0) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      alignSelf="flex-start"
+                      onClick={() => setShowUploadInterface(false)}
+                      leftIcon={<Box as="span" fontSize="lg">←</Box>}
+                    >
+                      Back to chat
+                    </Button>
+                  )}
+                  <Box
                         w="full"
                         maxW="700px"
                         bg="white"
@@ -3358,9 +3593,93 @@ export default function Chat() {
                           </Box>
                         </SimpleGrid>
                       </Box>
-                    </>
+                </VStack>
+              ) : messages.length === 0 ? (
+                <VStack gap={8} align="center" py={10}>
+                  {uploadedFiles.length === 0 ? (
+                    // Initial upload interface - same as above but shown by default
+                    <Box
+                      w="full"
+                      maxW="700px"
+                      bg="white"
+                      _dark={{ bg: "gray.800", borderColor: "gray.700" }}
+                      borderRadius="xl"
+                      border="1px solid"
+                      borderColor="gray.200"
+                      p={8}
+                      shadow="lg"
+                    >
+                      <VStack gap={1} align="center" mb={6}>
+                        <Heading size="lg" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
+                          Add Sources
+                        </Heading>
+                        <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
+                          Upload files or add from URL
+                        </Text>
+                      </VStack>
+                      <Box
+                        as="label"
+                        htmlFor="default-file-upload"
+                        cursor="pointer"
+                        display="block"
+                        w="full"
+                        p={10}
+                        mb={6}
+                        border="2px dashed"
+                        borderColor={isUploading ? "#818CF8" : "gray.300"}
+                        _dark={{ borderColor: isUploading ? "#A5B4FC" : "#6366F1", bg: "gray.800" }}
+                        borderRadius="lg"
+                        textAlign="center"
+                        transition="all 0.2s"
+                        bg="gray.50"
+                        _hover={{
+                          borderColor: "#818CF8",
+                          bg: "gray.100",
+                          _dark: { bg: "gray.700", borderColor: "#A5B4FC" }
+                        }}
+                        opacity={isUploading ? 0.7 : 1}
+                      >
+                        <VStack gap={3}>
+                          <Box
+                            w="48px"
+                            h="48px"
+                            borderRadius="full"
+                            bg="#E0E7FF"
+                            _dark={{ bg: "#4338CA" }}
+                            display="flex"
+                            alignItems="center"
+                            justifyContent="center"
+                          >
+                            {isUploading ? (
+                              <Spinner size="md" color="#4F46E5" _dark={{ color: "#E0E7FF" }} />
+                            ) : (
+                              <Box color="#4F46E5" _dark={{ color: "#E0E7FF" }} fontSize="xl">
+                                <FiUpload />
+                              </Box>
+                            )}
+                          </Box>
+                          <Text fontWeight="600" fontSize="md" _dark={{ color: "white" }}>
+                            {isUploading ? "Uploading..." : "Upload sources"}
+                          </Text>
+                          <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.300" }}>
+                            Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} textDecoration="underline">choose file</Text>
+                          </Text>
+                        </VStack>
+                        <input
+                          id="default-file-upload"
+                          type="file"
+                          accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.ppt,.pptx"
+                          multiple
+                          style={{ display: "none" }}
+                          onChange={handleFileUpload}
+                        />
+                      </Box>
+                      <Text fontSize="xs" color="gray.400" textAlign="center">
+                        Supports PDF, DOCX, TXT, and more
+                      </Text>
+                    </Box>
                   ) : (
-                    // Original interface when documents are uploaded
+                    // Files uploaded, ready to chat
                     <>
                       <Heading size="2xl" textAlign="center">
                         How can I help you with your research?
@@ -3496,18 +3815,17 @@ export default function Chat() {
                   {isLoading && (
                     <HStack gap={3} align="start">
                       <Box
-                        w="32px"
-                        h="32px"
+                        w="28px"
+                        h="28px"
                         borderRadius="full"
-                        bg="gradient-to-br from-blue-500 to-purple-600"
+                        bg="linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)"
                         display="flex"
                         alignItems="center"
                         justifyContent="center"
                         flexShrink={0}
+                        mt={1}
                       >
-                        <Text fontSize="sm" fontWeight="bold" color="white">
-                          AI
-                        </Text>
+                        <Text fontSize="sm" color="white">✦</Text>
                       </Box>
                       <Box
                         bg="white"
@@ -3559,7 +3877,7 @@ export default function Chat() {
             bg="white"
             shadow="md"
           >
-            <Container maxW="container.lg">
+            <Container maxW="container.lg" mx="auto">
               <VStack gap={3} align="stretch">
                 {/* Image Previews */}
                 {selectedImages.length > 0 && (
@@ -3594,44 +3912,8 @@ export default function Chat() {
                   </HStack>
                 )}
 
-                {/* Tutoring Mode Selector */}
-                <HStack gap={2} mb={2}>
-                  <Text fontSize="xs" fontWeight="600" color="gray.600" _dark={{ color: "gray.400" }}>
-                    Mode:
-                  </Text>
-                  <HStack gap={2}>
-                    <Button
-                      size="xs"
-                      variant={tutoringMode === "direct" ? "solid" : "outline"}
-                      colorScheme={tutoringMode === "direct" ? "blue" : "gray"}
-                      onClick={() => setTutoringMode("direct")}
-                      borderRadius="full"
-                      px={3}
-                      _hover={{ transform: "translateY(-1px)" }}
-                      transition="all 0.2s"
-                    >
-                      Direct
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant={tutoringMode === "interactive" ? "solid" : "outline"}
-                      colorScheme={tutoringMode === "interactive" ? "purple" : "gray"}
-                      onClick={() => setTutoringMode("interactive")}
-                      borderRadius="full"
-                      px={3}
-                      _hover={{ transform: "translateY(-1px)" }}
-                      transition="all 0.2s"
-                    >
-                      Interactive
-                    </Button>
-                  </HStack>
-                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} fontStyle="italic">
-                    {tutoringMode === "direct" ? "Get straight answers" : "Learn through Socratic questioning"}
-                  </Text>
-                </HStack>
-
                 {/* Input Area - Minimalistic Design */}
-                <HStack gap={2} align="end" position="relative">
+                <HStack gap={2} align="center" position="relative">
                   <Box position="relative" flex={1}>
                     <Textarea
                       placeholder={uploadedFiles.length > 0 ? "Ask me anything... (Tip: Use @filename to query specific docs)" : "Ask me anything about your research..."}
@@ -3649,8 +3931,11 @@ export default function Chat() {
                       borderColor="gray.300"
                       borderRadius="xl"
                       px={4}
-                      py={3}
+                      py="10px"
                       fontSize="sm"
+                      display="flex"
+                      alignItems="center"
+                      lineHeight="24px"
                       _focus={{
                         outline: "none",
                         borderColor: "gray.400",
@@ -3735,7 +4020,9 @@ export default function Chat() {
                     cursor="pointer"
                     isLoading={isUploadingImage}
                     borderRadius="full"
-                    size="sm"
+                    h="44px"
+                    w="44px"
+                    minW="44px"
                     fontSize="xl"
                     fontWeight="300"
                     color="gray.500"
@@ -3754,7 +4041,9 @@ export default function Chat() {
                   <IconButton
                     aria-label="Send message"
                     borderRadius="full"
-                    size="sm"
+                    h="44px"
+                    w="44px"
+                    minW="44px"
                     fontSize="lg"
                     color="white"
                     bg="gray.900"
@@ -3842,9 +4131,8 @@ export default function Chat() {
         {/* RIGHT PANEL: Studio (NotebookLM style) */}
         {showStudioPanel ? (
         <Box
-          w="320px"
-          minW="320px"
-          pr={8}
+          w="300px"
+          minW="300px"
           bg="white"
           _dark={{ bg: "gray.900", borderColor: "gray.800" }}
           borderLeftWidth="1px"
@@ -3893,7 +4181,7 @@ export default function Chat() {
 
             {/* Studio Actions - NotebookLM style */}
             <VStack gap={2} align="stretch" mt={2}>
-              {/* Podcast */}
+              {/* Audio Overview */}
               <Button
                 variant="outline"
                 justifyContent="flex-start"
@@ -3901,13 +4189,13 @@ export default function Chat() {
                 py={4}
                 px={4}
                 borderRadius="xl"
-                borderColor="gray.100"
-                _dark={{ borderColor: "gray.800", bg: "gray.900" }}
+                borderColor="gray.200"
                 bg="gray.50"
+                _dark={{ borderColor: "gray.700", bg: "gray.800" }}
                 transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                 _hover={{
                   bg: "#EEF2FF",
-                  borderColor: "#EEF2FF0",
+                  borderColor: "#C7D2FE",
                   transform: "translateY(-2px)",
                   shadow: "md",
                   _dark: { bg: "#312E81", borderColor: "#818CF8" },
@@ -3921,11 +4209,48 @@ export default function Chat() {
                 loadingText="Generating..."
               >
                 <VStack align="start" gap={1} w="full">
-                  <Text fontWeight="600" fontSize="sm">
-                    Podcast
+                  <Text fontWeight="600" fontSize="sm" _dark={{ color: "gray.100" }}>
+                    Audio Overview
                   </Text>
                   <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
-                    {isGeneratingPodcast ? 'Creating your study podcast...' : 'AI-generated study podcast'}
+                    {isGeneratingPodcast ? 'Creating your audio overview...' : 'Two-host deep dive discussion'}
+                  </Text>
+                </VStack>
+              </Button>
+
+              {/* Video Overview */}
+              <Button
+                variant="outline"
+                justifyContent="flex-start"
+                h="auto"
+                py={4}
+                px={4}
+                borderRadius="xl"
+                borderColor="gray.200"
+                bg="gray.50"
+                _dark={{ borderColor: "gray.700", bg: "gray.800" }}
+                transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                _hover={{
+                  bg: "#EEF2FF",
+                  borderColor: "#C7D2FE",
+                  transform: "translateY(-2px)",
+                  shadow: "md",
+                  _dark: { bg: "#312E81", borderColor: "#818CF8" },
+                }}
+                _active={{
+                  transform: "translateY(0)",
+                }}
+                isDisabled={uploadedFiles.length === 0 || isGeneratingVideo}
+                onClick={generateVideoOverview}
+                isLoading={isGeneratingVideo}
+                loadingText="Generating..."
+              >
+                <VStack align="start" gap={1} w="full">
+                  <Text fontWeight="600" fontSize="sm" _dark={{ color: "gray.100" }}>
+                    Video Overview
+                  </Text>
+                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                    {isGeneratingVideo ? 'Creating your video overview...' : 'AI-narrated slide presentation'}
                   </Text>
                 </VStack>
               </Button>
@@ -3938,13 +4263,13 @@ export default function Chat() {
                 py={4}
                 px={4}
                 borderRadius="xl"
-                borderColor="gray.100"
-                _dark={{ borderColor: "gray.800", bg: "gray.900" }}
+                borderColor="gray.200"
                 bg="gray.50"
+                _dark={{ borderColor: "gray.700", bg: "gray.800" }}
                 transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                 _hover={{
                   bg: "#EEF2FF",
-                  borderColor: "#EEF2FF0",
+                  borderColor: "#C7D2FE",
                   transform: "translateY(-2px)",
                   shadow: "md",
                   _dark: { bg: "#312E81", borderColor: "#818CF8" },
@@ -3958,7 +4283,7 @@ export default function Chat() {
                 loadingText="Generating..."
               >
                 <VStack align="start" gap={1} w="full">
-                  <Text fontWeight="600" fontSize="sm">
+                  <Text fontWeight="600" fontSize="sm" _dark={{ color: "gray.100" }}>
                     Flashcards
                   </Text>
                   <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
@@ -3975,13 +4300,13 @@ export default function Chat() {
                 py={4}
                 px={4}
                 borderRadius="xl"
-                borderColor="gray.100"
-                _dark={{ borderColor: "gray.800", bg: "gray.900" }}
+                borderColor="gray.200"
                 bg="gray.50"
+                _dark={{ borderColor: "gray.700", bg: "gray.800" }}
                 transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
                 _hover={{
                   bg: "#EEF2FF",
-                  borderColor: "#EEF2FF0",
+                  borderColor: "#C7D2FE",
                   transform: "translateY(-2px)",
                   shadow: "md",
                   _dark: { bg: "#312E81", borderColor: "#818CF8" },
@@ -3994,7 +4319,7 @@ export default function Chat() {
                 isLoading={isGeneratingStudio && studioType === 'quiz'}
               >
                 <VStack align="start" gap={1} w="full">
-                  <Text fontWeight="600" fontSize="sm">
+                  <Text fontWeight="600" fontSize="sm" _dark={{ color: "gray.100" }}>
                     Quiz
                   </Text>
                   <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
@@ -4033,19 +4358,19 @@ export default function Chat() {
                       key={material.id}
                       p={3}
                       bg="white"
-                      _dark={{ bg: "gray.800" }}
                       border="1px solid"
                       borderColor="gray.200"
-                      _dark={{ borderColor: "gray.700" }}
                       borderRadius="lg"
                       transition="all 0.2s"
                       _hover={{ borderColor: "#818CF8", shadow: "sm" }}
+                      _dark={{ bg: "gray.800", borderColor: "gray.700" }}
                     >
                       <VStack gap={2} align="stretch">
                         <HStack justify="space-between">
                           <VStack align="start" gap={0} flex={1}>
                             <Text fontSize="xs" fontWeight="600" color="gray.800" _dark={{ color: "gray.200" }}>
-                              {material.type === 'podcast' && 'Podcast'}
+                              {material.type === 'podcast' && 'Audio Overview'}
+                              {material.type === 'video' && `Video Overview (${material.slideCount} slides)`}
                               {material.type === 'flashcards' && `Flashcards (${material.count})`}
                               {material.type === 'quiz' && `Quiz (${material.count} questions)`}
                             </Text>
@@ -4053,15 +4378,20 @@ export default function Chat() {
                               {timeAgo}
                             </Text>
                           </VStack>
-                          <IconButton
-                            icon={<FiX />}
-                            size="xs"
-                            variant="ghost"
+                          <Box
+                            as="button"
+                            p={1}
+                            cursor="pointer"
+                            color="gray.400"
+                            _dark={{ color: "gray.500" }}
+                            _hover={{ color: "gray.700", _dark: { color: "gray.300" } }}
                             onClick={() => {
                               setSavedMaterials(savedMaterials.filter(m => m.id !== material.id));
                             }}
                             aria-label="Delete material"
-                          />
+                          >
+                            <FiX size={14} />
+                          </Box>
                         </HStack>
 
                         {/* Podcast Player */}
@@ -4086,6 +4416,34 @@ export default function Chat() {
                               fontSize="xs"
                             >
                               View Transcript
+                            </Button>
+                          </VStack>
+                        )}
+
+                        {/* Video Player */}
+                        {material.type === 'video' && (
+                          <VStack gap={2} align="stretch">
+                            <video
+                              controls
+                              style={{ width: '100%', borderRadius: '8px' }}
+                              src={material.videoUrl}
+                            >
+                              Your browser does not support the video element.
+                            </video>
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              w="full"
+                              onClick={() => {
+                                setVideoOverview({
+                                  videoUrl: material.videoUrl,
+                                  script: material.script,
+                                });
+                                setShowVideoPlayer(true);
+                              }}
+                              fontSize="xs"
+                            >
+                              View Full Screen
                             </Button>
                           </VStack>
                         )}
@@ -4151,10 +4509,12 @@ export default function Chat() {
         ) : (
           /* Collapsed Studio Panel Toggle */
           <Box
+            w="40px"
+            minW="40px"
             display={{ base: "none", lg: "flex" }}
             alignItems="flex-start"
+            justifyContent="center"
             pt={4}
-            pr={2}
           >
             <IconButton
               aria-label="Show studio panel"
@@ -4223,7 +4583,7 @@ export default function Chat() {
                     Audio Overview
                   </Text>
                   <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
-                    Podcast-style discussion of your sources
+                    Two-host deep dive discussion of your sources
                   </Text>
                 </VStack>
               </HStack>
@@ -4330,7 +4690,6 @@ export default function Chat() {
             left="50%"
             transform="translate(-50%, -50%)"
             bg="white"
-            _dark={{ bg: "gray.900" }}
             borderRadius="2xl"
             boxShadow="0 25px 50px -12px rgba(0, 0, 0, 0.25)"
             zIndex={1001}
@@ -4340,7 +4699,7 @@ export default function Chat() {
             overflow="hidden"
             border="1px solid"
             borderColor="gray.100"
-            _dark={{ borderColor: "gray.800" }}
+            _dark={{ bg: "gray.900", borderColor: "gray.800" }}
           >
             {/* Header */}
             <Flex
@@ -4350,17 +4709,10 @@ export default function Chat() {
               justify="space-between"
               borderBottom="1px solid"
               borderColor="gray.100"
-              _dark={{ borderColor: "gray.800" }}
-              bg="gradient-to-r from-purple-50 to-pink-50"
-              _dark={{ bg: "gray.900" }}
+              bg="gray.50"
+              _dark={{ borderColor: "gray.800", bg: "gray.800" }}
             >
               <HStack gap={3}>
-                <Text fontSize="3xl">
-                  {studioType === 'mindmap' && '🧠'}
-                  {studioType === 'flashcards' && '📇'}
-                  {studioType === 'quiz' && '✅'}
-                  {studioType === 'report' && '📊'}
-                </Text>
                 <VStack align="start" gap={0}>
                   <Text fontSize="lg" fontWeight="700" color="gray.800" _dark={{ color: "gray.100" }}>
                     {studioType === 'mindmap' && 'Mind Map'}
@@ -4376,14 +4728,18 @@ export default function Chat() {
                   </Text>
                 </VStack>
               </HStack>
-              <IconButton
-                icon={<FiX />}
-                variant="ghost"
-                size="sm"
+              <Box
+                as="button"
+                p={2}
+                cursor="pointer"
+                color="gray.500"
+                _dark={{ color: "gray.400" }}
+                _hover={{ color: "gray.800", _dark: { color: "white" } }}
                 onClick={() => setStudioModalOpen(false)}
                 aria-label="Close"
-                borderRadius="full"
-              />
+              >
+                <FiX size={20} />
+              </Box>
             </Flex>
 
             {/* Content */}
@@ -4391,6 +4747,9 @@ export default function Chat() {
               p={studioType === 'flashcards' ? 6 : 8}
               overflowY="auto"
               maxH="calc(85vh - 80px)"
+              display="flex"
+              flexDirection="column"
+              alignItems="center"
               css={{
                 '&::-webkit-scrollbar': { width: '6px' },
                 '&::-webkit-scrollbar-track': { background: 'transparent' },
@@ -4399,7 +4758,7 @@ export default function Chat() {
             >
               {/* Mind Map Content */}
               {studioType === 'mindmap' && (
-                <Box>
+                <Box w="full" maxW="700px">
                   <Text fontSize="md" whiteSpace="pre-wrap" lineHeight="1.8">
                     {studioContent.mindmap}
                   </Text>
@@ -4408,8 +4767,8 @@ export default function Chat() {
 
               {/* Flashcards Content */}
               {studioType === 'flashcards' && studioContent.flashcards && (
-                <VStack gap={6} align="stretch">
-                  <HStack justify="space-between">
+                <VStack gap={6} align="center" w="full" maxW="600px">
+                  <HStack justify="space-between" w="full">
                     <Text fontSize="sm" color="gray.600" _dark={{ color: "gray.400" }}>
                       Card {currentFlashcardIndex + 1} of {studioContent.flashcards.length}
                     </Text>
@@ -4440,55 +4799,127 @@ export default function Chat() {
                   </HStack>
 
                   <Box
+                    w="full"
                     p={8}
-                    bg="white"
-                    _dark={{ bg: "black" }}
+                    bg={showFlashcardAnswer ? "gray.50" : "white"}
                     border="2px solid"
-                    borderColor="black"
-                    _dark={{ borderColor: "white" }}
-                    borderRadius="lg"
-                    minH="300px"
+                    borderColor={showFlashcardAnswer ? "green.200" : "blue.200"}
+                    borderRadius="xl"
+                    minH="280px"
                     display="flex"
                     flexDirection="column"
                     justifyContent="center"
                     alignItems="center"
                     cursor="pointer"
                     onClick={() => setShowFlashcardAnswer(!showFlashcardAnswer)}
-                    transition="all 0.2s ease"
-                    _hover={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)" }}
+                    transition="all 0.3s ease"
+                    boxShadow="sm"
+                    _hover={{ boxShadow: "lg", transform: "translateY(-2px)" }}
+                    _dark={{
+                      bg: showFlashcardAnswer ? "gray.900" : "gray.800",
+                      borderColor: showFlashcardAnswer ? "green.600" : "blue.600",
+                      boxShadow: "0 4px 20px rgba(0, 0, 0, 0.4)"
+                    }}
                   >
                     <VStack gap={6}>
-                      <Text fontSize="xs" fontWeight="700" color="black" _dark={{ color: "white" }} letterSpacing="wider">
-                        {showFlashcardAnswer ? 'ANSWER' : 'QUESTION'}
-                      </Text>
-                      <Text fontSize="xl" fontWeight="500" textAlign="center" lineHeight="1.6" color="black" _dark={{ color: "white" }}>
+                      <HStack gap={2}>
+                        <Box
+                          p={1.5}
+                          borderRadius="full"
+                          bg={showFlashcardAnswer ? "green.100" : "blue.100"}
+                          _dark={{ bg: showFlashcardAnswer ? "green.900" : "blue.900" }}
+                        >
+                          {showFlashcardAnswer ? (
+                            <FiCheckCircle size={14} color={showFlashcardAnswer ? "var(--chakra-colors-green-500)" : "var(--chakra-colors-blue-500)"} />
+                          ) : (
+                            <FiHelpCircle size={14} color="var(--chakra-colors-blue-500)" />
+                          )}
+                        </Box>
+                        <Text
+                          fontSize="xs"
+                          fontWeight="700"
+                          color={showFlashcardAnswer ? "green.600" : "blue.600"}
+                          letterSpacing="wider"
+                          _dark={{ color: showFlashcardAnswer ? "green.300" : "blue.300" }}
+                        >
+                          {showFlashcardAnswer ? 'ANSWER' : 'QUESTION'}
+                        </Text>
+                      </HStack>
+                      <Text
+                        fontSize={showFlashcardAnswer ? "lg" : "xl"}
+                        fontWeight={showFlashcardAnswer ? "400" : "600"}
+                        textAlign="center"
+                        lineHeight="1.7"
+                        color={showFlashcardAnswer ? "gray.600" : "gray.800"}
+                        fontStyle={showFlashcardAnswer ? "normal" : "normal"}
+                        _dark={{ color: showFlashcardAnswer ? "gray.300" : "gray.100" }}
+                      >
                         {showFlashcardAnswer
                           ? studioContent.flashcards[currentFlashcardIndex].answer
                           : studioContent.flashcards[currentFlashcardIndex].question}
                       </Text>
-                      <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
+                      <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }}>
                         {showFlashcardAnswer ? 'Click to see question' : 'Click to reveal answer'}
                       </Text>
                     </VStack>
                   </Box>
+
+                  {/* Download Flashcards */}
+                  <HStack
+                    as="button"
+                    gap={1}
+                    color="gray.500"
+                    _dark={{ color: "gray.400" }}
+                    _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
+                    fontSize="xs"
+                    onClick={() => {
+                      let content = `# Flashcards\n\nGenerated on ${new Date().toLocaleDateString()}\n\n---\n\n`;
+                      studioContent.flashcards.forEach((card, idx) => {
+                        content += `## Card ${idx + 1}\n\n`;
+                        content += `**Q:** ${card.question}\n\n`;
+                        content += `**A:** ${card.answer}\n\n`;
+                        content += `---\n\n`;
+                      });
+
+                      const blob = new Blob([content], { type: 'text/markdown' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `flashcards-${new Date().toISOString().split('T')[0]}.md`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(url);
+
+                      toaster.create({
+                        title: "Downloaded!",
+                        description: "Flashcards saved as Markdown file",
+                        status: "success",
+                        duration: 3000,
+                      });
+                    }}
+                  >
+                    <FiDownload size={14} />
+                    <Text>Download</Text>
+                  </HStack>
                 </VStack>
               )}
 
               {/* Quiz Content */}
               {studioType === 'quiz' && studioContent.questions && (
-                <VStack gap={6} align="stretch">
+                <VStack gap={6} align="stretch" w="full" maxW="700px">
                   {studioContent.questions.map((q, qIdx) => (
                     <Box
                       key={qIdx}
                       p={5}
-                      bg="gray.50"
-                      _dark={{ bg: "gray.800" }}
-                      borderRadius="lg"
+                      bg="white"
+                      borderRadius="xl"
                       border="1px solid"
                       borderColor="gray.200"
-                      _dark={{ borderColor: "gray.700" }}
+                      boxShadow="sm"
+                      _dark={{ bg: "gray.800", borderColor: "gray.700" }}
                     >
-                      <Text fontWeight="700" fontSize="md" mb={4}>
+                      <Text fontWeight="600" fontSize="md" mb={4} color="gray.800" _dark={{ color: "gray.100" }}>
                         {qIdx + 1}. {q.question}
                       </Text>
                       <VStack gap={2} align="stretch">
@@ -4498,59 +4929,54 @@ export default function Chat() {
                           const isCorrect = q.correct === optionLetter;
                           const showResult = showQuizResults;
 
+                          // Determine colors based on state
+                          const getBg = () => {
+                            if (showResult && isCorrect) return "green.50";
+                            if (showResult && isSelected && !isCorrect) return "red.50";
+                            if (isSelected) return "blue.50";
+                            return "gray.50";
+                          };
+                          const getDarkBg = () => {
+                            if (showResult && isCorrect) return "green.900";
+                            if (showResult && isSelected && !isCorrect) return "red.900";
+                            if (isSelected) return "blue.900";
+                            return "gray.700";
+                          };
+                          const getBorderColor = () => {
+                            if (showResult && isCorrect) return "green.400";
+                            if (showResult && isSelected && !isCorrect) return "red.400";
+                            if (isSelected) return "blue.400";
+                            return "gray.200";
+                          };
+                          const getDarkBorderColor = () => {
+                            if (showResult && isCorrect) return "green.500";
+                            if (showResult && isSelected && !isCorrect) return "red.500";
+                            if (isSelected) return "blue.500";
+                            return "gray.600";
+                          };
+
                           return (
                             <Box
                               key={oIdx}
                               p={3}
-                              borderRadius="md"
-                              bg={
-                                showResult && isCorrect
-                                  ? "green.100"
-                                  : showResult && isSelected && !isCorrect
-                                  ? "red.100"
-                                  : isSelected
-                                  ? "#E0E7FF"
-                                  : "white"
-                              }
-                              _dark={{
-                                bg: showResult && isCorrect
-                                  ? "green.900"
-                                  : showResult && isSelected && !isCorrect
-                                  ? "red.900"
-                                  : isSelected
-                                  ? "#312E81"
-                                  : "gray.700",
-                                opacity: 0.8
-                              }}
+                              borderRadius="lg"
+                              bg={getBg()}
                               border="2px solid"
-                              borderColor={
-                                showResult && isCorrect
-                                  ? "green.500"
-                                  : showResult && isSelected && !isCorrect
-                                  ? "red.500"
-                                  : isSelected
-                                  ? "#EEF2FF0"
-                                  : "gray.300"
-                              }
-                              _dark={{
-                                borderColor: showResult && isCorrect
-                                  ? "green.500"
-                                  : showResult && isSelected && !isCorrect
-                                  ? "red.500"
-                                  : isSelected
-                                  ? "#EEF2FF0"
-                                  : "gray.600"
-                              }}
+                              borderColor={getBorderColor()}
                               cursor={showResult ? "default" : "pointer"}
                               onClick={() => {
                                 if (!showResult) {
                                   setQuizAnswers({ ...quizAnswers, [qIdx]: optionLetter });
                                 }
                               }}
-                              transition="all 0.15s ease"
-                              _hover={showResult ? {} : { borderColor: "#818CF8" }}
+                              transition="all 0.2s ease"
+                              _hover={showResult ? {} : { borderColor: "blue.400", bg: "blue.50", _dark: { borderColor: "blue.400", bg: "gray.700" } }}
+                              _dark={{
+                                bg: getDarkBg(),
+                                borderColor: getDarkBorderColor()
+                              }}
                             >
-                              <Text fontSize="sm">
+                              <Text fontSize="sm" color="gray.700" _dark={{ color: "gray.200" }}>
                                 {option}
                               </Text>
                             </Box>
@@ -4558,8 +4984,8 @@ export default function Chat() {
                         })}
                       </VStack>
                       {showQuizResults && q.explanation && (
-                        <Box mt={4} p={3} bg="#EEF2FF" _dark={{ bg: "#312E81", opacity: 0.4 }} borderRadius="md">
-                          <Text fontSize="sm" fontWeight="600" color="#4338CA" _dark={{ color: "#A5B4FC" }} mb={1}>
+                        <Box mt={4} p={3} bg="blue.50" borderRadius="lg" borderLeft="3px solid" borderLeftColor="blue.400" _dark={{ bg: "blue.900", borderLeftColor: "blue.400" }}>
+                          <Text fontSize="sm" fontWeight="600" color="blue.700" _dark={{ color: "blue.200" }} mb={1}>
                             Explanation:
                           </Text>
                           <Text fontSize="sm" color="gray.700" _dark={{ color: "gray.300" }}>
@@ -4584,21 +5010,88 @@ export default function Chat() {
                   )}
 
                   {showQuizResults && (
-                    <Box p={5} bg="gradient-to-r from-green-50 to-blue-50" _dark={{ bg: "gray.800" }} borderRadius="lg" textAlign="center">
-                      <Text fontSize="2xl" fontWeight="700" mb={2}>
-                        Score: {Object.values(quizAnswers).filter((answer, idx) => answer === studioContent.questions[idx].correct).length} / {studioContent.questions.length}
-                      </Text>
-                      <Text fontSize="sm" color="gray.600" _dark={{ color: "gray.400" }}>
-                        {Math.round((Object.values(quizAnswers).filter((answer, idx) => answer === studioContent.questions[idx].correct).length / studioContent.questions.length) * 100)}% correct
-                      </Text>
-                    </Box>
+                    <VStack gap={4}>
+                      <Box
+                        p={6}
+                        bg="green.50"
+                        borderRadius="xl"
+                        textAlign="center"
+                        border="1px solid"
+                        borderColor="green.200"
+                        w="full"
+                        _dark={{ bg: "green.900", borderColor: "green.700" }}
+                      >
+                        <Text fontSize="2xl" fontWeight="700" mb={2} color="green.700" _dark={{ color: "green.200" }}>
+                          Score: {Object.values(quizAnswers).filter((answer, idx) => answer === studioContent.questions[idx].correct).length} / {studioContent.questions.length}
+                        </Text>
+                        <Text fontSize="sm" color="green.600" _dark={{ color: "green.300" }}>
+                          {Math.round((Object.values(quizAnswers).filter((answer, idx) => answer === studioContent.questions[idx].correct).length / studioContent.questions.length) * 100)}% correct
+                        </Text>
+                      </Box>
+
+                      {/* Download Quiz Results */}
+                      <HStack
+                        as="button"
+                        gap={1}
+                        color="gray.500"
+                        _dark={{ color: "gray.400" }}
+                        _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
+                        fontSize="xs"
+                        onClick={() => {
+                          const score = Object.values(quizAnswers).filter((answer, idx) => answer === studioContent.questions[idx].correct).length;
+                          const total = studioContent.questions.length;
+                          const percentage = Math.round((score / total) * 100);
+
+                          let content = `# Quiz Results\n\n`;
+                          content += `**Score:** ${score} / ${total} (${percentage}%)\n`;
+                          content += `**Date:** ${new Date().toLocaleDateString()}\n\n---\n\n`;
+
+                          studioContent.questions.forEach((q, idx) => {
+                            const userAnswer = quizAnswers[idx];
+                            const isCorrect = userAnswer === q.correct;
+                            content += `## Question ${idx + 1}\n\n`;
+                            content += `${q.question}\n\n`;
+                            q.options.forEach(opt => {
+                              const letter = opt.charAt(0);
+                              const marker = letter === q.correct ? '[correct]' : (letter === userAnswer && !isCorrect ? '[your answer]' : '');
+                              content += `${opt} ${marker}\n`;
+                            });
+                            content += `\n**Result:** ${isCorrect ? 'Correct' : 'Incorrect'}\n`;
+                            if (q.explanation) {
+                              content += `**Explanation:** ${q.explanation}\n`;
+                            }
+                            content += `\n---\n\n`;
+                          });
+
+                          const blob = new Blob([content], { type: 'text/markdown' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `quiz-results-${new Date().toISOString().split('T')[0]}.md`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+
+                          toaster.create({
+                            title: "Downloaded!",
+                            description: "Quiz results saved as Markdown file",
+                            status: "success",
+                            duration: 3000,
+                          });
+                        }}
+                      >
+                        <FiDownload size={14} />
+                        <Text>Download Results</Text>
+                      </HStack>
+                    </VStack>
                   )}
                 </VStack>
               )}
 
               {/* Report Content */}
               {studioType === 'report' && (
-                <Box>
+                <Box w="full" maxW="700px">
                   <Text fontSize="md" whiteSpace="pre-wrap" lineHeight="1.8">
                     {studioContent.report}
                   </Text>
@@ -4643,32 +5136,35 @@ export default function Chat() {
               py={4}
               borderBottom="1px solid"
               borderColor="gray.200"
-              _dark={{ borderColor: "gray.700" }}
+              bg="gray.50"
+              _dark={{ borderColor: "gray.700", bg: "gray.800" }}
               justify="space-between"
               align="center"
             >
-              <HStack gap={3}>
-                <Text fontSize="2xl">🎙️</Text>
-                <VStack align="start" gap={0}>
-                  <Text fontSize="lg" fontWeight="700" color="gray.800" _dark={{ color: "gray.100" }}>
-                    Study Podcast
-                  </Text>
-                  <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
-                    AI-generated audio summary
-                  </Text>
-                </VStack>
-              </HStack>
-              <IconButton
-                icon={<FiX />}
-                variant="ghost"
-                size="sm"
+              <VStack align="start" gap={0}>
+                <Text fontSize="lg" fontWeight="700" color="gray.800" _dark={{ color: "gray.100" }}>
+                  Audio Overview
+                </Text>
+                <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
+                  Two-host deep dive discussion
+                </Text>
+              </VStack>
+              <Box
+                as="button"
+                p={2}
+                cursor="pointer"
+                color="gray.500"
+                _dark={{ color: "gray.400" }}
+                _hover={{ color: "gray.800", _dark: { color: "white" } }}
                 onClick={() => setShowPodcastPlayer(false)}
-                aria-label="Close podcast player"
-              />
+                aria-label="Close audio overview"
+              >
+                <FiX size={20} />
+              </Box>
             </Flex>
 
             {/* Audio Player */}
-            <Box p={6}>
+            <Box p={6} overflowY="auto" maxH="calc(80vh - 80px)">
               <audio
                 controls
                 style={{ width: '100%', marginBottom: '16px' }}
@@ -4680,22 +5176,182 @@ export default function Chat() {
               {/* Transcript */}
               {podcastScript && (
                 <Box>
-                  <Text fontSize="sm" fontWeight="600" color="gray.700" _dark={{ color: "gray.300" }} mb={2}>
-                    Transcript:
+                  <Text fontSize="sm" fontWeight="600" color="gray.700" _dark={{ color: "gray.300" }} mb={3}>
+                    Transcript
                   </Text>
                   <Box
                     maxH="300px"
                     overflowY="auto"
                     p={4}
                     bg="gray.50"
-                    _dark={{ bg: "gray.900" }}
-                    borderRadius="md"
-                    fontSize="sm"
-                    lineHeight="1.8"
-                    color="gray.700"
-                    _dark={{ color: "gray.300" }}
+                    borderRadius="lg"
+                    border="1px solid"
+                    borderColor="gray.200"
+                    _dark={{ bg: "gray.900", borderColor: "gray.700" }}
                   >
-                    {podcastScript}
+                    {podcastScript.split('\n').map((line, idx) => {
+                      const trimmed = line.trim();
+                      if (!trimmed) return null;
+
+                      // Check if it's a speaker line
+                      const isAlex = trimmed.startsWith('ALEX:');
+                      const isSam = trimmed.startsWith('SAM:');
+                      const text = trimmed.replace(/^(ALEX|SAM):/, '').trim();
+
+                      if (isAlex || isSam) {
+                        return (
+                          <Box key={idx} mb={3}>
+                            <Text
+                              fontSize="xs"
+                              fontWeight="600"
+                              color={isAlex ? "blue.600" : "purple.600"}
+                              _dark={{ color: isAlex ? "blue.400" : "purple.400" }}
+                              mb={1}
+                            >
+                              {isAlex ? 'Alex' : 'Sam'}
+                            </Text>
+                            <Text
+                              fontSize="sm"
+                              lineHeight="1.7"
+                              color="gray.700"
+                              _dark={{ color: "gray.300" }}
+                            >
+                              {text}
+                            </Text>
+                          </Box>
+                        );
+                      }
+
+                      return (
+                        <Text
+                          key={idx}
+                          fontSize="sm"
+                          lineHeight="1.7"
+                          color="gray.700"
+                          _dark={{ color: "gray.300" }}
+                          mb={2}
+                        >
+                          {trimmed}
+                        </Text>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        </>
+      )}
+
+      {/* Video Player Modal */}
+      {showVideoPlayer && videoOverview && (
+        <>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.800"
+            zIndex={2000}
+            onClick={() => setShowVideoPlayer(false)}
+          />
+          <Box
+            position="fixed"
+            top="50%"
+            left="50%"
+            transform="translate(-50%, -50%)"
+            bg="white"
+            _dark={{ bg: "gray.800" }}
+            borderRadius="2xl"
+            boxShadow="2xl"
+            zIndex={2001}
+            maxW="900px"
+            w="95%"
+            maxH="90vh"
+            overflow="hidden"
+          >
+            {/* Header */}
+            <Flex
+              px={6}
+              py={4}
+              borderBottom="1px solid"
+              borderColor="gray.200"
+              _dark={{ borderColor: "gray.700", bg: "gray.800" }}
+              bg="gray.50"
+              justify="space-between"
+              align="center"
+            >
+              <VStack align="start" gap={0}>
+                <Text fontSize="lg" fontWeight="700" color="gray.800" _dark={{ color: "gray.100" }}>
+                  Video Overview
+                </Text>
+                <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
+                  AI-narrated slide presentation
+                </Text>
+              </VStack>
+              <Box
+                as="button"
+                p={2}
+                cursor="pointer"
+                color="gray.500"
+                _dark={{ color: "gray.400" }}
+                _hover={{ color: "gray.800", _dark: { color: "white" } }}
+                onClick={() => setShowVideoPlayer(false)}
+                aria-label="Close video overview"
+              >
+                <FiX size={20} />
+              </Box>
+            </Flex>
+
+            {/* Video Player */}
+            <Box p={6} overflowY="auto" maxH="calc(90vh - 80px)">
+              <video
+                controls
+                autoPlay
+                style={{
+                  width: '100%',
+                  borderRadius: '12px',
+                  backgroundColor: '#000',
+                }}
+                src={videoOverview.videoUrl}
+              >
+                Your browser does not support the video element.
+              </video>
+
+              {/* Slide Script */}
+              {videoOverview.script && (
+                <Box mt={4}>
+                  <Text fontSize="sm" fontWeight="600" color="gray.700" _dark={{ color: "gray.300" }} mb={3}>
+                    Transcript
+                  </Text>
+                  <Box
+                    maxH="200px"
+                    overflowY="auto"
+                    display="flex"
+                    gap={3}
+                    flexWrap="wrap"
+                  >
+                    {videoOverview.script.slides?.map((slide, idx) => (
+                      <Box
+                        key={idx}
+                        p={3}
+                        bg="gray.50"
+                        borderRadius="lg"
+                        border="1px solid"
+                        borderColor="gray.200"
+                        minW="200px"
+                        flex="1"
+                        _dark={{ bg: "gray.900", borderColor: "gray.700" }}
+                      >
+                        <Text fontSize="xs" fontWeight="600" color="blue.600" _dark={{ color: "blue.400" }} mb={1}>
+                          Slide {idx + 1}: {slide.heading}
+                        </Text>
+                        <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }} noOfLines={3}>
+                          {slide.narration}
+                        </Text>
+                      </Box>
+                    ))}
                   </Box>
                 </Box>
               )}
@@ -4713,13 +5369,12 @@ export default function Chat() {
         h="100vh"
         w="400px"
         bg="white"
-        _dark={{ bg: "gray.900" }}
         boxShadow="-4px 0 20px rgba(0, 0, 0, 0.15)"
         zIndex={1001}
         transition="right 0.3s ease-in-out"
         borderLeft="1px solid"
         borderColor="gray.200"
-        _dark={{ borderColor: "gray.700" }}
+        _dark={{ bg: "gray.900", borderColor: "gray.700" }}
         display="flex"
         flexDirection="column"
       >
@@ -4733,12 +5388,11 @@ export default function Chat() {
               justify="space-between"
               borderBottom="1px solid"
               borderColor="gray.200"
-              _dark={{ borderColor: "gray.700" }}
               bg="gray.50"
-              _dark={{ bg: "gray.800" }}
+              _dark={{ borderColor: "gray.700", bg: "gray.800" }}
             >
               <HStack gap={2}>
-                <Box w="3px" h="20px" bg="#EEF2FF0" borderRadius="full" />
+                <Box w="3px" h="20px" bg="blue.500" borderRadius="full" />
                 <VStack align="start" gap={0}>
                   <Text fontSize="sm" fontWeight="600" color="gray.800" _dark={{ color: "white" }} noOfLines={1}>
                     {selectedDocument.name}
@@ -4748,13 +5402,18 @@ export default function Chat() {
                   )}
                 </VStack>
               </HStack>
-              <IconButton
-                icon={<FiX />}
-                size="sm"
-                variant="ghost"
+              <Box
+                as="button"
+                p={2}
+                cursor="pointer"
+                color="gray.500"
+                _dark={{ color: "gray.400" }}
+                _hover={{ color: "gray.800", _dark: { color: "white" } }}
                 onClick={() => setDocumentModalOpen(false)}
                 aria-label="Close panel"
-              />
+              >
+                <FiX size={20} />
+              </Box>
             </Flex>
 
             {/* Content */}
@@ -4764,23 +5423,21 @@ export default function Chat() {
                 <Box mb={6}>
                   <Box
                     bg="white"
-                    _dark={{ bg: "gray.800" }}
                     border="1px solid"
                     borderColor="gray.200"
-                    _dark={{ borderColor: "gray.700" }}
                     borderRadius="lg"
                     overflow="hidden"
                     boxShadow="sm"
+                    _dark={{ bg: "gray.800", borderColor: "gray.700" }}
                   >
                     {/* Source Header */}
                     <HStack
                       px={4}
                       py={2}
                       bg="gray.50"
-                      _dark={{ bg: "gray.900" }}
                       borderBottom="1px solid"
                       borderColor="gray.200"
-                      _dark={{ borderColor: "gray.700" }}
+                      _dark={{ bg: "gray.900", borderColor: "gray.700" }}
                     >
                       <FiFile size="12px" color="gray" />
                       <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }}>
@@ -4859,345 +5516,6 @@ export default function Chat() {
           zIndex={1000}
           onClick={() => setDocumentModalOpen(false)}
         />
-      )}
-
-      {/* Upload Interface Overlay Modal - Minimalist B&W */}
-      {showUploadInterface && (
-        <>
-          {/* Backdrop */}
-          <Box
-            position="fixed"
-            top={0}
-            left={0}
-            right={0}
-            bottom={0}
-            bg="blackAlpha.600"
-            _dark={{ bg: "blackAlpha.800" }}
-            backdropFilter="blur(4px)"
-            zIndex={2000}
-            onClick={() => setShowUploadInterface(false)}
-          />
-
-          {/* Modal Content */}
-          <Box
-            position="fixed"
-            top="50%"
-            left="50%"
-            transform="translate(-50%, -50%)"
-            w="90%"
-            maxW="700px"
-            maxH="90vh"
-            overflowY="auto"
-            bg="white"
-            _dark={{ bg: "gray.900" }}
-            borderRadius="2xl"
-            border="1px solid"
-            borderColor="gray.200"
-            _dark={{ borderColor: "gray.700" }}
-            boxShadow="0 25px 50px -12px rgba(0, 0, 0, 0.25)"
-            zIndex={2001}
-            p={8}
-          >
-            {/* Close Button */}
-            <IconButton
-              position="absolute"
-              top={4}
-              right={4}
-              aria-label="Close"
-              variant="ghost"
-              size="sm"
-              borderRadius="full"
-              color="gray.500"
-              _dark={{ color: "gray.400" }}
-              _hover={{
-                bg: "gray.100",
-                color: "gray.900",
-                _dark: { bg: "gray.800", color: "gray.100" }
-              }}
-              onClick={() => setShowUploadInterface(false)}
-            >
-              <FiX />
-            </IconButton>
-
-            {/* Upload Interface Content - Matching initial experience */}
-            <Box w="full">
-              {/* Header */}
-              <VStack gap={1} align="center" mb={6}>
-                <Heading size="lg" fontWeight="600" textAlign="center" _dark={{ color: "white" }}>
-                  Add Sources
-                </Heading>
-                <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">
-                  Upload files or add from URL
-                </Text>
-              </VStack>
-
-              {/* Upload Area */}
-              <Box
-                as="label"
-                htmlFor="modal-file-upload"
-                cursor={isUploading ? "wait" : "pointer"}
-                display="block"
-                w="full"
-                p={10}
-                mb={6}
-                border="2px dashed"
-                borderColor={isUploading ? "#818CF8" : "gray.300"}
-                _dark={{ borderColor: isUploading ? "#A5B4FC" : "#6366F1", bg: "gray.800" }}
-                borderRadius="lg"
-                textAlign="center"
-                transition="all 0.2s"
-                bg="gray.50"
-                _hover={{
-                  borderColor: "#818CF8",
-                  bg: "gray.100",
-                  _dark: { bg: "gray.700", borderColor: "#A5B4FC" }
-                }}
-                opacity={isUploading ? 0.7 : 1}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-              >
-                <VStack gap={3}>
-                  <Box
-                    w="48px"
-                    h="48px"
-                    borderRadius="full"
-                    bg="#E0E7FF"
-                    _dark={{ bg: "#4338CA" }}
-                    display="flex"
-                    alignItems="center"
-                    justifyContent="center"
-                  >
-                    {isUploading ? (
-                      <Spinner size="md" color="#4F46E5" _dark={{ color: "#E0E7FF" }} />
-                    ) : (
-                      <Box color="#4F46E5" _dark={{ color: "#E0E7FF" }} fontSize="xl">
-                        <FiUpload />
-                      </Box>
-                    )}
-                  </Box>
-                  <Text fontWeight="600" fontSize="md" _dark={{ color: "white" }}>
-                    {isUploading ? "Uploading..." : "Upload sources"}
-                  </Text>
-                  <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.300" }}>
-                    {isUploading ? (
-                      "Processing document..."
-                    ) : (
-                      <>Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} textDecoration="underline">choose file</Text> to upload</>
-                    )}
-                  </Text>
-                  <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} mt={2}>
-                    Supported: PDF, TXT, MD, CSV, JSON, JPG, PNG
-                  </Text>
-                </VStack>
-              </Box>
-              <input
-                id="modal-file-upload"
-                type="file"
-                accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
-                onChange={handleFileUpload}
-                multiple
-                style={{ display: "none" }}
-                disabled={isUploading}
-              />
-
-              {/* Source Type Cards - 4 Column Grid */}
-              <SimpleGrid columns={{ base: 2, md: 4 }} gap={4} w="full">
-                {/* Google Workspace Card */}
-                <Box
-                  flex={1}
-                  p={4}
-                  minH="88px"
-                  bg="gray.50"
-                  _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                  borderRadius="lg"
-                  border="1px solid"
-                  borderColor="gray.200"
-                  cursor={isLoadingGoogleDrive ? "wait" : "pointer"}
-                  transition="all 0.2s"
-                  _hover={{ bg: "gray.100", _dark: { bg: "gray.600" } }}
-                  onClick={handleGoogleDrivePicker}
-                  opacity={isLoadingGoogleDrive ? 0.7 : 1}
-                >
-                  <HStack gap={2} mb={3}>
-                    {isLoadingGoogleDrive ? <Spinner size="sm" color="#4F46E5" /> : <SiGoogledrive color="#4F46E5" />}
-                    <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Google Workspace</Text>
-                  </HStack>
-                  <HStack gap={2} flexWrap="wrap">
-                    <Box
-                      as="span"
-                      px={3}
-                      py={1}
-                      bg="#E0E7FF"
-                      _dark={{ bg: "#312E81", color: "#A5B4FC" }}
-                      color="#4F46E5"
-                      borderRadius="full"
-                      fontSize="xs"
-                      fontWeight="500"
-                      display="flex"
-                      alignItems="center"
-                      gap={1}
-                    >
-                      <SiGoogledrive size={12} />
-                      Google Drive
-                    </Box>
-                  </HStack>
-                </Box>
-
-                {/* OneDrive Card */}
-                <Box
-                  flex={1}
-                  p={4}
-                  minH="88px"
-                  bg="gray.50"
-                  _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                  borderRadius="lg"
-                  border="1px solid"
-                  borderColor="gray.200"
-                  cursor={isLoadingOneDrive ? "wait" : "pointer"}
-                  transition="all 0.2s"
-                  _hover={{ bg: "gray.100", _dark: { bg: "gray.600" } }}
-                  onClick={handleOneDrivePicker}
-                  opacity={isLoadingOneDrive ? 0.7 : 1}
-                >
-                  <HStack gap={2} mb={3}>
-                    {isLoadingOneDrive ? <Spinner size="sm" color="#4F46E5" /> : <FiCloud color="#4F46E5" />}
-                    <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>OneDrive</Text>
-                  </HStack>
-                  <HStack gap={2} flexWrap="wrap">
-                    <Box
-                      as="span"
-                      px={3}
-                      py={1}
-                      bg="#E0E7FF"
-                      _dark={{ bg: "#312E81", color: "#A5B4FC" }}
-                      color="#4F46E5"
-                      borderRadius="full"
-                      fontSize="xs"
-                      fontWeight="500"
-                      display="flex"
-                      alignItems="center"
-                      gap={1}
-                    >
-                      <FiCloud size={12} />
-                      Microsoft
-                    </Box>
-                  </HStack>
-                </Box>
-
-                {/* Link Card */}
-                <Box
-                  flex={1}
-                  p={4}
-                  minH="88px"
-                  bg="gray.50"
-                  _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                  borderRadius="lg"
-                  border="1px solid"
-                  borderColor="gray.200"
-                  transition="all 0.2s"
-                >
-                  <HStack gap={2} mb={3}>
-                    <FiLink color="#4F46E5" />
-                    <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Link</Text>
-                  </HStack>
-                  <HStack gap={2} flexWrap="wrap">
-                    <Box
-                      as="span"
-                      px={3}
-                      py={1}
-                      bg="gray.200"
-                      _dark={{ bg: "gray.700" }}
-                      borderRadius="full"
-                      fontSize="xs"
-                      fontWeight="500"
-                      display="flex"
-                      alignItems="center"
-                      gap={1}
-                      cursor="pointer"
-                      _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
-                      onClick={() => {
-                        setShowWebsiteInput(true);
-                        setShowYoutubeInput(false);
-                        setShowUploadInterface(false);
-                      }}
-                    >
-                      <FiGlobe size={12} />
-                      Website
-                    </Box>
-                    <Box
-                      as="span"
-                      px={3}
-                      py={1}
-                      bg="red.100"
-                      _dark={{ bg: "red.900", color: "red.300" }}
-                      color="red.600"
-                      borderRadius="full"
-                      fontSize="xs"
-                      fontWeight="500"
-                      display="flex"
-                      alignItems="center"
-                      gap={1}
-                      cursor="pointer"
-                      _hover={{ bg: "red.200", _dark: { bg: "red.800" } }}
-                      onClick={() => {
-                        setShowYoutubeInput(true);
-                        setShowWebsiteInput(false);
-                        setShowUploadInterface(false);
-                      }}
-                    >
-                      <FiYoutube size={12} />
-                      YouTube
-                    </Box>
-                  </HStack>
-                </Box>
-
-                {/* Paste Text Card */}
-                <Box
-                  flex={1}
-                  p={4}
-                  minH="88px"
-                  bg="gray.50"
-                  _dark={{ bg: "gray.700", borderColor: "gray.500" }}
-                  borderRadius="lg"
-                  border="1px solid"
-                  borderColor="gray.200"
-                  transition="all 0.2s"
-                >
-                  <HStack gap={2} mb={3}>
-                    <FiFileText color="#4F46E5" />
-                    <Text fontWeight="500" fontSize="sm" _dark={{ color: "white" }}>Paste text</Text>
-                  </HStack>
-                  <HStack gap={2}>
-                    <Box
-                      as="span"
-                      px={3}
-                      py={1}
-                      bg="gray.200"
-                      _dark={{ bg: "gray.700" }}
-                      borderRadius="full"
-                      fontSize="xs"
-                      fontWeight="500"
-                      display="flex"
-                      alignItems="center"
-                      gap={1}
-                      cursor="pointer"
-                      _hover={{ bg: "gray.300", _dark: { bg: "gray.600" } }}
-                      onClick={() => {
-                        setShowPasteText(true);
-                        setShowUploadInterface(false);
-                      }}
-                    >
-                      <FiFile size={12} />
-                      Copied text
-                    </Box>
-                  </HStack>
-                </Box>
-              </SimpleGrid>
-            </Box>
-          </Box>
-        </>
       )}
 
       {/* PDF Viewer Modal */}

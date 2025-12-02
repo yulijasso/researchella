@@ -2,6 +2,7 @@
 """
 PDF text extraction using pdfplumber with intelligent text cleaning
 Extracts text page by page and fixes common PDF extraction issues
+Includes line-level tracking for precise citations
 """
 
 import sys
@@ -10,9 +11,10 @@ import pdfplumber
 from clean_pdf_text import clean_pdf_text
 
 def extract_pdf_text(pdf_path):
-    """Extract text from PDF page by page using pdfplumber"""
+    """Extract text from PDF page by page using pdfplumber with line tracking"""
     try:
         pages_data = []
+        global_line_num = 0  # Track lines across all pages
 
         with pdfplumber.open(pdf_path) as pdf:
             total_pages = len(pdf.pages)
@@ -38,6 +40,23 @@ def extract_pdf_text(pdf_path):
                 if table_text:
                     full_text += "\n\n" + table_text
 
+                # Split into lines BEFORE cleaning (to preserve original line structure)
+                original_lines = full_text.split('\n')
+                page_start_line = global_line_num + 1
+
+                # Create line index for this page
+                lines_data = []
+                for i, line in enumerate(original_lines):
+                    global_line_num += 1
+                    if line.strip():  # Only non-empty lines
+                        lines_data.append({
+                            "line_num": global_line_num,
+                            "page_line": i + 1,
+                            "text": line.strip(),
+                            "char_start": sum(len(l) + 1 for l in original_lines[:i]),
+                            "char_end": sum(len(l) + 1 for l in original_lines[:i+1])
+                        })
+
                 # Apply intelligent text cleaning
                 cleaned_text = clean_pdf_text(full_text)
 
@@ -46,7 +65,11 @@ def extract_pdf_text(pdf_path):
                     "text": cleaned_text,
                     "original_text": full_text,
                     "char_count": len(cleaned_text),
-                    "original_char_count": len(full_text)
+                    "original_char_count": len(full_text),
+                    "start_line": page_start_line,
+                    "end_line": global_line_num,
+                    "line_count": len(lines_data),
+                    "lines": lines_data  # Include line data for precise citation
                 })
 
                 # Progress indicator
@@ -56,6 +79,7 @@ def extract_pdf_text(pdf_path):
         return {
             "success": True,
             "total_pages": total_pages,
+            "total_lines": global_line_num,
             "pages": pages_data,
             "total_chars": sum(p["char_count"] for p in pages_data)
         }
