@@ -238,6 +238,10 @@ export default function Chat() {
                 setUploadedFiles(prev => [...prev, processingFile]);
 
                 try {
+                  // Use AbortController with 10 minute timeout for large files
+                  const controller = new AbortController();
+                  const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+
                   const response = await fetch('/api/google-drive-download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -248,7 +252,10 @@ export default function Chat() {
                       accessToken: accessToken,
                       sessionId: sessionId,
                     }),
+                    signal: controller.signal,
                   });
+
+                  clearTimeout(timeoutId);
 
                   const result = await response.json();
 
@@ -282,11 +289,17 @@ export default function Chat() {
                   console.error('Google Drive import error:', error);
                   // Remove the processing file on error
                   setUploadedFiles(prev => prev.filter(f => !(f.googleFileId === file.id && f.isProcessing)));
+
+                  let errorMessage = error.message;
+                  if (error.name === 'AbortError') {
+                    errorMessage = 'Processing timed out. The file may be too large. Try uploading directly as PDF.';
+                  }
+
                   toaster.create({
                     title: "Import Failed",
-                    description: error.message,
+                    description: errorMessage,
                     type: "error",
-                    duration: 5000,
+                    duration: 7000,
                   });
                 } finally {
                   setIsUploading(false);

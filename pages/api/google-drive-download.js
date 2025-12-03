@@ -42,14 +42,32 @@ const OFFICE_MIME_TYPES = [
   'application/vnd.oasis.opendocument.presentation', // .odp
 ];
 
+// Check if Python is available
+function isPythonAvailable() {
+  const isServerless = process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL;
+  if (isServerless) return false;
+
+  const pythonPath = getPythonPath();
+  return fs.existsSync(pythonPath);
+}
+
 // Fast PDF processing using pdfplumber (for large PDFs like textbooks)
 async function processPDFFast(filePath, fileName) {
   console.log(`⚡ FAST MODE: Processing large PDF ${fileName}`);
   const startTime = Date.now();
 
+  // Check if Python is available
+  if (!isPythonAvailable()) {
+    console.log('⚠️ Python not available - falling back to officeParser');
+    return null; // Signal to use fallback
+  }
+
   try {
     const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber.py');
     const pythonPath = getPythonPath();
+
+    console.log(`🐍 Using Python: ${pythonPath}`);
+    console.log(`📜 Script: ${scriptPath}`);
 
     // Execute Python script with large buffer
     const { stdout, stderr } = await execPromise(
@@ -84,7 +102,8 @@ async function processPDFFast(filePath, fileName) {
     };
   } catch (error) {
     console.error('Fast PDF processing error:', error);
-    throw error;
+    console.log('⚠️ Python processing failed - will try officeParser fallback');
+    return null; // Signal to use fallback
   }
 }
 
@@ -287,10 +306,12 @@ export default async function handler(req, res) {
       console.log(`📎 Skipping PDF storage for large file (${fileSizeMB.toFixed(1)}MB)`);
     }
 
-    // For large PDFs (>5MB), use fast pdfplumber processing
+    // For large PDFs (>5MB), try fast pdfplumber processing first
     const FAST_MODE_THRESHOLD = 5 * 1024 * 1024; // 5MB
+    let usedFastMode = false;
+
     if (isPdf && buffer.length > FAST_MODE_THRESHOLD) {
-      console.log(`📚 Large PDF detected (${fileSizeMB.toFixed(1)}MB) - using fast mode`);
+      console.log(`📚 Large PDF detected (${fileSizeMB.toFixed(1)}MB) - trying fast mode`);
 
       // Save to temp file
       const tempDir = os.tmpdir();
@@ -302,9 +323,16 @@ export default async function handler(req, res) {
 
         // Use fast pdfplumber processing
         const result = await processPDFFast(tempFilePath, fileName);
-        content = result.content;
 
-        console.log(`✅ Fast mode extracted ${result.charCount} chars from ${result.pageCount} pages`);
+        if (result && result.content) {
+          content = result.content;
+          usedFastMode = true;
+          console.log(`✅ Fast mode extracted ${result.charCount} chars from ${result.pageCount} pages`);
+        } else {
+          console.log(`⚠️ Fast mode returned null - will use officeParser`);
+        }
+      } catch (fastError) {
+        console.error('Fast mode error:', fastError);
       } finally {
         // Clean up temp file
         try {
@@ -315,7 +343,10 @@ export default async function handler(req, res) {
           console.log('Temp file cleanup warning:', e.message);
         }
       }
-    } else {
+    }
+
+    // Use officeParser if fast mode wasn't used or failed
+    if (!usedFastMode) {
       // Check if it's an Office/PDF file that officeParser can handle
       const isOfficeFile = OFFICE_MIME_TYPES.includes(exportMimeType) ||
                            OFFICE_MIME_TYPES.includes(mimeType) ||
