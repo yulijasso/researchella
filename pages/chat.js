@@ -763,157 +763,172 @@ export default function Chat() {
   };
 
   const handleFileUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
 
-    // Check file size before uploading
-    const fileSizeMB = file.size / (1024 * 1024);
     const maxSizeMB = 1024 * 1024; // 1TB
 
-    if (fileSizeMB > maxSizeMB) {
-      toaster.create({
-        title: "File Too Large",
-        description: `File size is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB.`,
-        type: "error",
-        duration: 7000,
-      });
+    // Filter out files that are too large
+    const validFiles = [];
+    for (const file of files) {
+      const fileSizeMB = file.size / (1024 * 1024);
+      if (fileSizeMB > maxSizeMB) {
+        toaster.create({
+          title: "File Too Large",
+          description: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB.`,
+          type: "error",
+          duration: 7000,
+        });
+      } else {
+        validFiles.push(file);
+      }
+    }
+
+    if (validFiles.length === 0) {
       event.target.value = "";
       return;
     }
 
     setIsUploading(true);
 
-    // Add file to sources immediately with processing state (NotebookLM style)
-    const processingFile = {
+    // Add all files to sources immediately with processing state (NotebookLM style)
+    const processingFiles = validFiles.map(file => ({
       name: file.name,
       type: file.type,
       isPDF: file.type === 'application/pdf',
       isProcessing: true,
       uploadStartTime: Date.now(),
-    };
-    setUploadedFiles(prev => [...prev, processingFile]);
+    }));
+    setUploadedFiles(prev => [...prev, ...processingFiles]);
 
-    // Show progress toast for large files (>10MB)
-    if (fileSizeMB > 10) {
+    // Show toast for multiple files
+    if (validFiles.length > 1) {
       toaster.create({
-        title: "Uploading Large File",
-        description: `Processing ${file.name} (${fileSizeMB.toFixed(1)}MB). This may take a few minutes...`,
-        status: "info",
+        title: "Uploading Files",
+        description: `Processing ${validFiles.length} files...`,
+        type: "info",
         duration: 5000,
       });
     }
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("sessionId", sessionId); // Add session ID for isolation
+    // Process each file
+    const uploadResults = [];
+    for (const file of validFiles) {
+      const fileSizeMB = file.size / (1024 * 1024);
 
-      // Use AbortController with longer timeout for large files (5 minutes)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
-
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+      // Show progress toast for large files (>10MB)
+      if (fileSizeMB > 10) {
+        toaster.create({
+          title: "Uploading Large File",
+          description: `Processing ${file.name} (${fileSizeMB.toFixed(1)}MB). This may take a few minutes...`,
+          type: "info",
+          duration: 5000,
+        });
       }
 
-      const data = await response.json();
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("sessionId", sessionId);
 
-      // Store file with additional metadata including file data for PDF viewing
-      const fileData = {
-        name: file.name,
-        chunks: data.chunksAdded,
-        type: file.type,
-        isPDF: file.type === 'application/pdf',
-        isProcessing: false, // Mark as complete
-      };
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-      // Helper to update the processing file entry
-      const updateProcessingFile = (pdfData = null) => {
-        setUploadedFiles(prev => prev.map(f =>
-          (f.name === file.name && f.isProcessing)
-            ? { ...fileData, pdfData }
-            : f
-        ));
-      };
+        const response = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
 
-      // If it's a PDF, convert to base64 for storage and viewing
-      if (file.type === 'application/pdf') {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          updateProcessingFile(e.target.result);
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        const fileData = {
+          name: file.name,
+          chunks: data.chunksAdded,
+          type: file.type,
+          isPDF: file.type === 'application/pdf',
+          isProcessing: false,
         };
-        reader.onerror = () => {
-          console.error('FileReader error for PDF');
-          // Still update the file as complete, just without PDF data
-          updateProcessingFile(null);
+
+        // Helper to update the processing file entry
+        const updateProcessingFile = (pdfData = null) => {
+          setUploadedFiles(prev => prev.map(f =>
+            (f.name === file.name && f.isProcessing)
+              ? { ...fileData, pdfData }
+              : f
+          ));
         };
-        reader.readAsDataURL(file);
-      } else {
-        updateProcessingFile();
+
+        // If it's a PDF, convert to base64 for storage and viewing
+        if (file.type === 'application/pdf') {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            updateProcessingFile(e.target.result);
+          };
+          reader.onerror = () => {
+            updateProcessingFile(null);
+          };
+          reader.readAsDataURL(file);
+        } else {
+          updateProcessingFile();
+        }
+
+        uploadResults.push({ file: file.name, success: true, chunks: data.chunksAdded, method: data.method });
+
+      } catch (error) {
+        console.error(`Upload error for ${file.name}:`, error);
+
+        let errorMessage = error.message || "Failed to process the document.";
+        if (error.name === 'AbortError') {
+          errorMessage = `Upload timed out after 5 minutes.`;
+        }
+
+        toaster.create({
+          title: "Upload Failed",
+          description: `"${file.name}": ${errorMessage}`,
+          type: "error",
+          duration: 7000,
+        });
+
+        // Remove the processing file entry on error
+        setUploadedFiles(prev => prev.filter(f => !(f.name === file.name && f.isProcessing)));
+        uploadResults.push({ file: file.name, success: false });
       }
+    }
 
-      // Add system message about successful upload
-      setMessages([
-        ...messages,
+    // Show summary message
+    const successCount = uploadResults.filter(r => r.success).length;
+    const totalChunks = uploadResults.filter(r => r.success).reduce((sum, r) => sum + r.chunks, 0);
+
+    if (successCount > 0) {
+      const fileNames = uploadResults.filter(r => r.success).map(r => r.file).join(', ');
+      setMessages(prev => [
+        ...prev,
         {
           role: "system",
-          content: `Successfully uploaded and processed "${file.name}" (${data.chunksAdded} chunks added to knowledge base)${data.method === 'GPT-4 Vision' ? ' using GPT-4 Vision' : ''}`,
+          content: `Successfully uploaded ${successCount} file${successCount > 1 ? 's' : ''}: ${fileNames} (${totalChunks} total chunks added)`,
         },
       ]);
 
-      // Show success toast
       toaster.create({
-        title: "Document Uploaded Successfully",
-        description: `"${file.name}" has been processed (${data.chunksAdded} chunks)${data.method === 'GPT-4 Vision' ? ' using GPT-4 Vision' : ''}`,
+        title: successCount > 1 ? "Documents Uploaded Successfully" : "Document Uploaded Successfully",
+        description: `${successCount} file${successCount > 1 ? 's' : ''} processed (${totalChunks} chunks)`,
         type: "success",
         duration: 5000,
       });
 
-      // Close upload interface if it was open
       setShowUploadInterface(false);
-
-      // Reset file input
-      event.target.value = "";
-    } catch (error) {
-      console.error("Upload error:", error);
-
-      // Provide specific error messages
-      let errorMessage = error.message || "Failed to process the document.";
-
-      if (error.name === 'AbortError') {
-        errorMessage = `Upload timed out after 5 minutes. The file (${fileSizeMB.toFixed(1)}MB) may be too large or complex.`;
-      } else if (errorMessage.includes('too large') || errorMessage.includes('LIMIT_FILE_SIZE')) {
-        errorMessage = `File is too large. Maximum size is ${maxSizeMB}MB. Your file is ${fileSizeMB.toFixed(1)}MB.`;
-      } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('Failed to fetch')) {
-        errorMessage = `Connection failed. The server may be processing. Please try again.`;
-      } else if (fileSizeMB > 50) {
-        errorMessage = `Failed to process large file (${fileSizeMB.toFixed(1)}MB). ${errorMessage}`;
-      }
-
-      toaster.create({
-        title: "Upload Failed",
-        description: errorMessage,
-        type: "error",
-        duration: 7000,
-      });
-
-      // Remove the processing file entry on error
-      setUploadedFiles(prev => prev.filter(f => !(f.name === file.name && f.isProcessing)));
-
-      // Reset file input
-      event.target.value = "";
-    } finally {
-      setIsUploading(false);
     }
+
+    event.target.value = "";
+    setIsUploading(false);
   };
 
   const handleDeleteFile = async (index) => {
