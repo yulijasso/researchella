@@ -8,6 +8,34 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  // GET - List files for a session
+  if (req.method === 'GET') {
+    const { session_id } = req.query;
+
+    if (!session_id) {
+      return res.status(400).json({ error: 'session_id is required' });
+    }
+
+    try {
+      const { data: files, error } = await supabase
+        .from('uploaded_files')
+        .select('*')
+        .eq('session_id', session_id)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching files:', error);
+        return res.status(500).json({ error: 'Failed to fetch files' });
+      }
+
+      return res.status(200).json({ files: files || [] });
+    } catch (error) {
+      console.error('Error fetching files:', error);
+      return res.status(500).json({ error: 'Failed to fetch files' });
+    }
+  }
+
   // PATCH - Rename file
   if (req.method === 'PATCH') {
     const { id, name } = req.body;

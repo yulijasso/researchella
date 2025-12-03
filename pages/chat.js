@@ -878,6 +878,11 @@ export default function Chat() {
         reader.onload = (e) => {
           updateProcessingFile(e.target.result);
         };
+        reader.onerror = () => {
+          console.error('FileReader error for PDF');
+          // Still update the file as complete, just without PDF data
+          updateProcessingFile(null);
+        };
         reader.readAsDataURL(file);
       } else {
         updateProcessingFile();
