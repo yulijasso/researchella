@@ -292,12 +292,12 @@ export default function Chat() {
 
                   let errorMessage = error.message;
                   if (error.name === 'AbortError') {
-                    errorMessage = 'Timed out. Textbook support coming soon.';
+                    errorMessage = 'Timed out.';
                   }
 
                   toaster.create({
                     title: "Import Failed",
-                    description: errorMessage,
+                    description: `${errorMessage} Textbook support coming soon.`,
                     type: "error",
                     duration: 7000,
                   });
@@ -1031,12 +1031,12 @@ export default function Chat() {
 
         let errorMessage = error.message || "Failed to process the document.";
         if (error.name === 'AbortError') {
-          errorMessage = `Timed out. Textbook support coming soon.`;
+          errorMessage = `Timed out.`;
         }
 
         toaster.create({
           title: "Upload Failed",
-          description: `"${file.name}": ${errorMessage}`,
+          description: `"${file.name}": ${errorMessage} Textbook support coming soon.`,
           type: "error",
           duration: 7000,
         });
