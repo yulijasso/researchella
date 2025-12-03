@@ -7,3 +7,7 @@ healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+
+# Increase timeout for large file processing (5 minutes)
+# Note: Also set in Railway dashboard under Settings > Networking > Request Timeout
+startCommand = "npm start"
