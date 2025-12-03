@@ -4178,57 +4178,6 @@ export default function Chat() {
                   Researchella can be inaccurate; please double check its responses.
                 </Text>
 
-                {/* Suggested Questions - NotebookLM Style */}
-                {uploadedFiles.length > 0 && messages.length === 0 && (
-                  <VStack gap={2} align="stretch" mt={2}>
-                    <Text fontSize="xs" color="gray.600" _dark={{ color: "gray.400" }} fontWeight="600">
-                      Suggested questions:
-                    </Text>
-                    <HStack gap={2} flexWrap="wrap">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => sendMessage("What are the main findings?")}
-                        borderRadius="full"
-                        px={3}
-                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
-                      >
-                        What are the main findings?
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => sendMessage("Summarize the key points")}
-                        borderRadius="full"
-                        px={3}
-                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
-                      >
-                        Summarize the key points
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => sendMessage("What methodology was used?")}
-                        borderRadius="full"
-                        px={3}
-                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
-                      >
-                        What methodology was used?
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => sendMessage("What are the conclusions?")}
-                        borderRadius="full"
-                        px={3}
-                        _hover={{ bg: "#EEF2FF", borderColor: "#818CF8", _dark: { bg: "#312E81" } }}
-                      >
-                        What are the conclusions?
-                      </Button>
-                    </HStack>
-                  </VStack>
-                )}
-
               </VStack>
             </Container>
           </Box>
