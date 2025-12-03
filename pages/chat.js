@@ -3661,18 +3661,19 @@ export default function Chat() {
                           </Text>
                         </HStack>
                       </VStack>
+                      {/* Upload Area */}
                       <Box
                         as="label"
                         htmlFor="default-file-upload"
                         cursor="pointer"
                         display="block"
                         w="full"
-                        p={10}
-                        mb={6}
+                        p={8}
+                        mb={5}
                         border="2px dashed"
                         borderColor={isUploading ? "#818CF8" : "gray.300"}
-                        _dark={{ borderColor: isUploading ? "#A5B4FC" : "#6366F1", bg: "gray.800" }}
-                        borderRadius="lg"
+                        _dark={{ borderColor: isUploading ? "#A5B4FC" : "gray.600", bg: "gray.800" }}
+                        borderRadius="xl"
                         textAlign="center"
                         transition="all 0.2s"
                         bg="gray.50"
@@ -3683,44 +3684,165 @@ export default function Chat() {
                         }}
                         opacity={isUploading ? 0.7 : 1}
                       >
-                        <VStack gap={3}>
+                        <VStack gap={2}>
                           <Box
-                            w="48px"
-                            h="48px"
-                            borderRadius="full"
+                            w="44px"
+                            h="44px"
+                            borderRadius="xl"
                             bg="#E0E7FF"
-                            _dark={{ bg: "#4338CA" }}
+                            _dark={{ bg: "#312E81" }}
                             display="flex"
                             alignItems="center"
                             justifyContent="center"
+                            mb={1}
                           >
                             {isUploading ? (
-                              <Spinner size="md" color="#4F46E5" _dark={{ color: "#E0E7FF" }} />
+                              <Spinner size="sm" color="#4F46E5" _dark={{ color: "#A5B4FC" }} />
                             ) : (
-                              <Box color="#4F46E5" _dark={{ color: "#E0E7FF" }} fontSize="xl">
-                                <FiUpload />
-                              </Box>
+                              <FiUpload color="#4F46E5" size={20} />
                             )}
                           </Box>
-                          <Text fontWeight="600" fontSize="md" _dark={{ color: "white" }}>
-                            {isUploading ? "Uploading..." : "Upload sources"}
+                          <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }}>
+                            {isUploading ? "Processing..." : "Upload files"}
                           </Text>
-                          <Text fontSize="sm" color="gray.500" _dark={{ color: "gray.300" }}>
-                            Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} textDecoration="underline">choose file</Text>
+                          <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                            {isUploading ? (
+                              "Extracting content from your document..."
+                            ) : (
+                              <>Drag & drop or <Text as="span" color="#4F46E5" _dark={{ color: "#A5B4FC" }} fontWeight="500">browse</Text></>
+                            )}
+                          </Text>
+                          <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
+                            PDF, TXT, MD, CSV, JSON, Images
                           </Text>
                         </VStack>
-                        <input
-                          id="default-file-upload"
-                          type="file"
-                          accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.ppt,.pptx"
-                          multiple
-                          style={{ display: "none" }}
-                          onChange={handleFileUpload}
-                        />
                       </Box>
-                      <Text fontSize="xs" color="gray.400" textAlign="center">
-                        Supports PDF, DOCX, TXT, and more
-                      </Text>
+                      <input
+                        id="default-file-upload"
+                        type="file"
+                        accept=".pdf,.txt,.md,.csv,.json,.jpg,.jpeg,.png,.gif,.bmp,.webp,.svg"
+                        onChange={handleFileUpload}
+                        multiple
+                        style={{ display: "none" }}
+                        disabled={isUploading}
+                      />
+
+                      {/* Divider with text */}
+                      <HStack w="full" mb={5}>
+                        <Box flex={1} h="1px" bg="gray.200" _dark={{ bg: "gray.600" }} />
+                        <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }} px={3}>or import from</Text>
+                        <Box flex={1} h="1px" bg="gray.200" _dark={{ bg: "gray.600" }} />
+                      </HStack>
+
+                      {/* Source Type Cards */}
+                      <SimpleGrid columns={4} gap={3} w="full">
+                        {/* Google Drive Card */}
+                        <Box
+                          p={4}
+                          bg="gray.50"
+                          _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                          borderRadius="xl"
+                          border="1px solid"
+                          borderColor="gray.200"
+                          cursor={isLoadingGoogleDrive ? "wait" : "pointer"}
+                          transition="all 0.2s"
+                          _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                          onClick={handleGoogleDrivePicker}
+                          opacity={isLoadingGoogleDrive ? 0.7 : 1}
+                        >
+                          <VStack gap={2} align="center">
+                            <Box w="36px" h="36px" bg="#E0E7FF" _dark={{ bg: "#312E81" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                              {isLoadingGoogleDrive ? <Spinner size="sm" color="#4F46E5" /> : <SiGoogledrive color="#4F46E5" size={18} />}
+                            </Box>
+                            <VStack gap={0}>
+                              <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Google Drive</Text>
+                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">PDF, Docs, Sheets</Text>
+                            </VStack>
+                          </VStack>
+                        </Box>
+
+                        {/* Website Card */}
+                        <Box
+                          p={4}
+                          bg="gray.50"
+                          _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                          borderRadius="xl"
+                          border="1px solid"
+                          borderColor="gray.200"
+                          cursor="pointer"
+                          transition="all 0.2s"
+                          _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                          onClick={() => {
+                            setShowWebsiteInput(true);
+                            setShowYoutubeInput(false);
+                          }}
+                        >
+                          <VStack gap={2} align="center">
+                            <Box w="36px" h="36px" bg="blue.100" _dark={{ bg: "blue.900" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                              <FiGlobe color="#3B82F6" size={18} />
+                            </Box>
+                            <VStack gap={0}>
+                              <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Website</Text>
+                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">Any webpage URL</Text>
+                            </VStack>
+                          </VStack>
+                        </Box>
+
+                        {/* YouTube Card */}
+                        <Box
+                          p={4}
+                          bg="gray.50"
+                          _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                          borderRadius="xl"
+                          border="1px solid"
+                          borderColor="gray.200"
+                          cursor="pointer"
+                          transition="all 0.2s"
+                          _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                          onClick={() => {
+                            setShowYoutubeInput(true);
+                            setShowWebsiteInput(false);
+                          }}
+                        >
+                          <VStack gap={2} align="center">
+                            <Box w="36px" h="36px" bg="red.100" _dark={{ bg: "red.900" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                              <FiYoutube color="#EF4444" size={18} />
+                            </Box>
+                            <VStack gap={0}>
+                              <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">YouTube</Text>
+                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">Video transcript</Text>
+                            </VStack>
+                          </VStack>
+                        </Box>
+
+                        {/* Paste Text Card */}
+                        <Box
+                          p={4}
+                          bg="gray.50"
+                          _dark={{ bg: "gray.700", borderColor: "gray.600" }}
+                          borderRadius="xl"
+                          border="1px solid"
+                          borderColor="gray.200"
+                          cursor="pointer"
+                          transition="all 0.2s"
+                          _hover={{ bg: "gray.100", borderColor: "gray.300", transform: "translateY(-1px)", _dark: { bg: "gray.600", borderColor: "gray.500" } }}
+                          onClick={() => {
+                            setShowPasteText(true);
+                            setShowWebsiteInput(false);
+                            setShowYoutubeInput(false);
+                          }}
+                        >
+                          <VStack gap={2} align="center">
+                            <Box w="36px" h="36px" bg="green.100" _dark={{ bg: "green.900" }} borderRadius="lg" display="flex" alignItems="center" justifyContent="center">
+                              <FiFileText color="#22C55E" size={18} />
+                            </Box>
+                            <VStack gap={0}>
+                              <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Paste text</Text>
+                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">Copy & paste</Text>
+                            </VStack>
+                          </VStack>
+                        </Box>
+                      </SimpleGrid>
                     </Box>
                   ) : (
                     // Files uploaded, ready to chat
