@@ -292,7 +292,7 @@ export default function Chat() {
 
                   let errorMessage = error.message;
                   if (error.name === 'AbortError') {
-                    errorMessage = 'Processing timed out. The file may be too large. Try uploading directly as PDF.';
+                    errorMessage = 'Timed out. Textbook support coming soon.';
                   }
 
                   toaster.create({
@@ -1031,7 +1031,7 @@ export default function Chat() {
 
         let errorMessage = error.message || "Failed to process the document.";
         if (error.name === 'AbortError') {
-          errorMessage = `Upload timed out after 5 minutes.`;
+          errorMessage = `Timed out. Textbook support coming soon.`;
         }
 
         toaster.create({
