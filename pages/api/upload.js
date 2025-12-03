@@ -397,9 +397,18 @@ async function processPDFFast(filePath, fileName, fileSize) {
   console.log(`⚡ FAST MODE: Processing PDF ${fileName} (${Math.round(fileSize / 1024 / 1024)}MB)`);
   const startTime = Date.now();
 
+  // Check if Python is available (won't work on serverless)
+  const isServerless = process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL;
+  const pythonPath = getPythonPath();
+  const hasPython = !isServerless && fs.existsSync(pythonPath);
+
+  if (!hasPython) {
+    console.log('⚠️ Python not available - falling back to JS extraction');
+    return processPDF(filePath, fileName);
+  }
+
   try {
     const scriptPath = path.join(process.cwd(), 'scripts', 'extract_pdf_plumber_parallel.py');
-    const pythonPath = getPythonPath();
 
     // Execute Python script
     const { stdout, stderr } = await execPromise(
@@ -450,8 +459,17 @@ async function processPDF(filePath, fileName) {
 
   const methods = [];
 
-  // Method 1: Try pdfplumber (high-quality extraction, no page limits)
-  methods.push(async () => {
+  // Check if Python is available (won't work on Netlify/serverless)
+  const isServerless = process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL;
+  const pythonPath = getPythonPath();
+  const hasPython = !isServerless && fs.existsSync(pythonPath);
+
+  if (!hasPython) {
+    console.log('⚠️ Python not available (serverless environment) - using JavaScript PDF extraction');
+  }
+
+  // Method 1: Try pdfplumber (high-quality extraction, no page limits) - LOCAL ONLY
+  if (hasPython) methods.push(async () => {
     try {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('📘 ATTEMPTING PDFPLUMBER EXTRACTION');
@@ -515,8 +533,8 @@ async function processPDF(filePath, fileName) {
     }
   });
 
-  // Method 2: Try PyMuPDF extraction (often cleaner than pdfplumber)
-  methods.push(async () => {
+  // Method 2: Try PyMuPDF extraction (often cleaner than pdfplumber) - LOCAL ONLY
+  if (hasPython) methods.push(async () => {
     try {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('🔷 ATTEMPTING PYMUPDF EXTRACTION');

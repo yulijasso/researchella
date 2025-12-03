@@ -7,3 +7,13 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+[functions]
+  # Increase function timeout (max 26s on Pro plan)
+  external_node_modules = ["pdf2json", "pdfjs-dist"]
+
+# Increase request body size limit for file uploads
+[[headers]]
+  for = "/api/upload"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
