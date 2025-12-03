@@ -585,33 +585,6 @@ export default function Chat() {
   // Messages are now saved to Supabase when created (see sendMessage function)
   // No need for auto-save - messages persist in database immediately
 
-  const suggestedPrompts = [
-    {
-      title: "Research Papers",
-      description: "Find and analyze academic papers on a specific topic",
-    },
-    {
-      title: "Literature Review",
-      description: "Help me conduct a systematic literature review",
-    },
-    {
-      title: "Citation Analysis",
-      description: "Analyze citation patterns and research impact",
-    },
-    {
-      title: "Paper Summary",
-      description: "Summarize key findings from research papers",
-    },
-    {
-      title: "Research Trends",
-      description: "Identify emerging trends in my field of study",
-    },
-    {
-      title: "Reference Manager",
-      description: "Organize and manage my research references",
-    },
-  ];
-
   // Check if URL is a YouTube link
   const isYouTubeUrl = (url) => {
     return /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)/.test(url);
@@ -3846,45 +3819,13 @@ export default function Chat() {
                     </Box>
                   ) : (
                     // Files uploaded, ready to chat
-                    <>
-                      <Heading size="2xl" textAlign="center">
-                        How can I help you with your research?
-                      </Heading>
-                      <Box w="full" p={4} bg="green.50" _dark={{ bg: "green.900", opacity: 0.3 }} borderRadius="md">
-                        <HStack justify="center" gap={2}>
-                          <Text color="green.700" _dark={{ color: "green.300" }}>
-                            ✓ {uploadedFiles.length} document{uploadedFiles.length > 1 ? "s" : ""} loaded
-                          </Text>
-                        </HStack>
-                      </Box>
-                      <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} gap={4} w="full" mt={4}>
-                        {suggestedPrompts.map((prompt, index) => (
-                          <Card.Root
-                            key={index}
-                            variant="outline"
-                            cursor="pointer"
-                            _hover={{
-                              borderColor: "#EEF2FF0",
-                              transform: "translateY(-2px)",
-                              shadow: "md",
-                            }}
-                            transition="all 0.2s"
-                            onClick={() => sendMessage(prompt.description)}
-                          >
-                            <Card.Body>
-                              <VStack align="start" gap={2}>
-                                <Text fontWeight="bold" fontSize="sm">
-                                  {prompt.title}
-                                </Text>
-                                <Text fontSize="sm" color="gray.600" _dark={{ color: "gray.400" }}>
-                                  {prompt.description}
-                                </Text>
-                              </VStack>
-                            </Card.Body>
-                          </Card.Root>
-                        ))}
-                      </SimpleGrid>
-                    </>
+                    <Box w="full" p={4} bg="green.50" _dark={{ bg: "green.900", opacity: 0.3 }} borderRadius="md">
+                      <HStack justify="center" gap={2}>
+                        <Text color="green.700" _dark={{ color: "green.300" }}>
+                          ✓ {uploadedFiles.length} document{uploadedFiles.length > 1 ? "s" : ""} loaded
+                        </Text>
+                      </HStack>
+                    </Box>
                   )}
                 </VStack>
               ) : (
