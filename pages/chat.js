@@ -775,6 +775,87 @@ export default function Chat() {
     }
   };
 
+  // S3 direct upload for large files (>20MB)
+  const uploadToS3 = async (file, onProgress) => {
+    // Get presigned URL
+    const urlResponse = await fetch('/api/get-upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size,
+        sessionId: sessionId,
+      }),
+    });
+
+    if (!urlResponse.ok) {
+      const error = await urlResponse.json();
+      throw new Error(error.error || 'Failed to get upload URL');
+    }
+
+    const { uploadUrl, fileId, s3Key } = await urlResponse.json();
+
+    // Upload directly to S3
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error('Failed to upload file to S3');
+    }
+
+    // Trigger processing
+    const processResponse = await fetch('/api/trigger-processing', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileId }),
+    });
+
+    if (!processResponse.ok) {
+      const error = await processResponse.json();
+      throw new Error(error.error || 'Failed to trigger processing');
+    }
+
+    return { fileId, s3Key };
+  };
+
+  // Poll for processing status
+  const pollProcessingStatus = async (fileId, fileName, onComplete, onError) => {
+    const maxAttempts = 300; // 25 minutes (5s intervals)
+    let attempts = 0;
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/processing-status?fileId=${fileId}`);
+        const data = await response.json();
+
+        if (data.status === 'completed') {
+          onComplete(data);
+          return;
+        } else if (data.status === 'failed') {
+          onError(new Error(data.errorMessage || 'Processing failed'));
+          return;
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          setTimeout(poll, 5000); // Poll every 5 seconds
+        } else {
+          onError(new Error('Processing timed out after 25 minutes'));
+        }
+      } catch (error) {
+        onError(error);
+      }
+    };
+
+    poll();
+  };
+
   const handleFileUpload = async (event) => {
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
@@ -829,17 +910,67 @@ export default function Chat() {
     for (const file of validFiles) {
       const fileSizeMB = file.size / (1024 * 1024);
 
+      // Use S3 for large files (>20MB) to avoid timeout issues
+      const S3_THRESHOLD_MB = 20;
+      const useS3Upload = fileSizeMB > S3_THRESHOLD_MB && process.env.NEXT_PUBLIC_USE_S3_UPLOAD === 'true';
+
       // Show progress toast for large files (>10MB)
       if (fileSizeMB > 10) {
         toaster.create({
-          title: "Uploading Large File",
-          description: `Processing ${file.name} (${fileSizeMB.toFixed(1)}MB). This may take a few minutes...`,
+          title: useS3Upload ? "Uploading Large File to Cloud" : "Uploading Large File",
+          description: `Processing ${file.name} (${fileSizeMB.toFixed(1)}MB). This may take several minutes...`,
           type: "info",
           duration: 5000,
         });
       }
 
       try {
+        // Use S3 direct upload for large files
+        if (useS3Upload) {
+          const { fileId } = await uploadToS3(file);
+
+          // Start polling for completion
+          pollProcessingStatus(
+            fileId,
+            file.name,
+            (data) => {
+              // Update the processing file with completion data
+              setUploadedFiles(prev => prev.map(f =>
+                (f.name === file.name && f.isProcessing)
+                  ? {
+                      name: file.name,
+                      chunks: data.chunksCount,
+                      type: file.type,
+                      isPDF: file.type === 'application/pdf',
+                      isProcessing: false,
+                    }
+                  : f
+              ));
+
+              toaster.create({
+                title: "Document Processed",
+                description: `"${file.name}" has been processed (${data.chunksCount} chunks)`,
+                type: "success",
+                duration: 5000,
+              });
+            },
+            (error) => {
+              console.error(`S3 processing error for ${file.name}:`, error);
+              setUploadedFiles(prev => prev.filter(f => !(f.name === file.name && f.isProcessing)));
+              toaster.create({
+                title: "Processing Failed",
+                description: `"${file.name}": ${error.message}`,
+                type: "error",
+                duration: 7000,
+              });
+            }
+          );
+
+          uploadResults.push({ file: file.name, success: true, chunks: 0, method: 'S3' });
+          continue; // Skip to next file, polling will handle completion
+        }
+
+        // Standard upload for smaller files
         const formData = new FormData();
         formData.append("file", file);
         formData.append("sessionId", sessionId);
