@@ -3976,16 +3976,7 @@ export default function Chat() {
                         </Box>
                       </SimpleGrid>
                     </Box>
-                  ) : (
-                    // Files uploaded, ready to chat
-                    <Box w="full" p={4} bg="green.50" _dark={{ bg: "green.900", opacity: 0.3 }} borderRadius="md">
-                      <HStack justify="center" gap={2}>
-                        <Text color="green.700" _dark={{ color: "green.300" }}>
-                          ✓ {uploadedFiles.length} document{uploadedFiles.length > 1 ? "s" : ""} loaded
-                        </Text>
-                      </HStack>
-                    </Box>
-                  )}
+                  ) : null}
                 </VStack>
               ) : (
                 <VStack gap={4} align="stretch" py={4}>
