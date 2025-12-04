@@ -869,7 +869,7 @@ export default function Chat() {
       if (fileSizeMB > maxSizeMB) {
         toaster.create({
           title: "File Too Large",
-          description: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB.`,
+          description: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB. Textbook support coming soon.`,
           type: "error",
           duration: 7000,
         });
