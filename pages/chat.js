@@ -1936,6 +1936,11 @@ export default function Chat() {
       // If we have a verbatim quote, show that (it's what the AI cited)
       if (citation?.quote) {
         text = citation.quote;
+      } else if (citation?.highlightText) {
+        // Use highlightText as fallback (saved citations from history)
+        text = citation.highlightText;
+        // Clean and return early
+        return fixRunTogetherWords(text.replace(/\s+/g, ' ').trim());
       } else if (citation?.content) {
         // Normalize whitespace
         const cleaned = citation.content.replace(/\s+/g, ' ').trim();
@@ -2653,8 +2658,19 @@ export default function Chat() {
 
       setMessages([...newMessages, assistantMessage]);
 
-      // Save assistant message to Supabase
+      // Save assistant message to database
       try {
+        // Slim down citations for storage - remove large content field
+        const citationsForStorage = data.citations?.map(c => ({
+          id: c.id,
+          source: c.source,
+          page: c.page,
+          type: c.type,
+          quote: c.quote,
+          highlightText: c.highlightText,
+          // Don't save 'content' - it's too large and not needed for display
+        })) || null;
+
         const saveAssistantResponse = await fetch('/api/messages', {
           method: 'POST',
           headers: {
@@ -2664,7 +2680,7 @@ export default function Chat() {
             session_id: sessionId,
             role: 'assistant',
             content: data.reply,
-            citations: data.citations || null,
+            citations: citationsForStorage,
           }),
         });
         if (!saveAssistantResponse.ok) {
@@ -3849,7 +3865,7 @@ export default function Chat() {
                               )}
                             </Text>
                             <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
-                              PDF, Docs, Sheets, Slides, TXT, Images
+                              PDF, MD, TXT, CSV, JSON, Images
                             </Text>
                           </VStack>
                         </Box>
@@ -4088,7 +4104,7 @@ export default function Chat() {
                             )}
                           </Text>
                           <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
-                            PDF, Docs, Sheets, Slides, TXT, Images
+                            PDF, MD, TXT, CSV, JSON, Images
                           </Text>
                         </VStack>
                       </Box>
