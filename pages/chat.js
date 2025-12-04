@@ -494,13 +494,35 @@ export default function Chat() {
 
       const loadSessionData = async () => {
         try {
-          // Load session info
+          // Load session info - and CREATE if doesn't exist
           const sessionResponse = await fetch(`/api/sessions`);
           if (sessionResponse.ok) {
             const { sessions } = await sessionResponse.json();
             const session = sessions.find(s => s.id === sessionId);
             if (session) {
               setSessionName(session.name);
+            } else {
+              // Session doesn't exist in database - create it!
+              // This ensures files can be saved (foreign key constraint)
+              console.log(`📝 Session ${sessionId} not in database, creating it...`);
+              try {
+                const createResponse = await fetch('/api/sessions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    id: sessionId,
+                    name: 'New Notebook'
+                  }),
+                });
+                if (createResponse.ok) {
+                  console.log(`✅ Created session ${sessionId} in database`);
+                  setSessionName('New Notebook');
+                } else {
+                  console.error('Failed to create session:', await createResponse.text());
+                }
+              } catch (createError) {
+                console.error('Error creating session:', createError);
+              }
             }
           }
 
