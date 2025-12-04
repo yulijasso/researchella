@@ -61,7 +61,6 @@ export default async function handler(req, res) {
       const updates = {};
       if (name !== undefined) updates.name = name;
       if (tutoring_mode !== undefined) updates.tutoring_mode = tutoring_mode;
-      updates.updated_at = new Date().toISOString();
 
       const { data, error } = await supabase
         .from('sessions')
@@ -71,7 +70,10 @@ export default async function handler(req, res) {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase update error:', error);
+        throw error;
+      }
 
       return res.status(200).json({ session: data });
     }
