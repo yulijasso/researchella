@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { getAuth } from "@clerk/nextjs/server";
 import { supabase } from "../../lib/supabase";
+import { supabaseAdmin } from "../../lib/supabaseServer";
 
 export const config = {
   api: {
@@ -16,6 +17,9 @@ export default async function handler(req, res) {
   }
 
   const { userId } = getAuth(req);
+
+  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
+  const db = supabaseAdmin || supabase;
 
   try {
     const uploadDir = path.join(process.cwd(), "public", "uploads", "images");
@@ -76,7 +80,7 @@ export default async function handler(req, res) {
     let fileId = null;
     if (sessionId && userId) {
       try {
-        const { data: fileData, error: dbError } = await supabase
+        const { data: fileData, error: dbError } = await db
           .from('uploaded_files')
           .insert({
             user_id: userId,

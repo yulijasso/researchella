@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import { getAuth } from '@clerk/nextjs/server';
 import { addDocumentsToStore } from "../../lib/vectorStore";
 import { supabase } from '../../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabaseServer';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -14,6 +15,9 @@ export default async function handler(req, res) {
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
+  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
+  const db = supabaseAdmin || supabase;
 
   try {
     const { url, sessionId = 'default' } = req.body;
@@ -61,7 +65,7 @@ export default async function handler(req, res) {
     const title = extractedData.title || 'Untitled Document';
 
     // Save to database for @mention and file listing
-    const { data: fileData, error: dbError } = await supabase
+    const { data: fileData, error: dbError } = await db
       .from('uploaded_files')
       .insert({
         user_id: userId,

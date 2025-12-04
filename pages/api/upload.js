@@ -6,6 +6,7 @@ import { performOCR } from "../../lib/ocrProcessor";
 import OpenAI from "openai";
 import { getAuth } from "@clerk/nextjs/server";
 import { supabase } from "../../lib/supabase";
+import { supabaseAdmin } from "../../lib/supabaseServer";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { cleanPDFText } from "../../lib/intelligentTextCleaner";
@@ -1071,8 +1072,10 @@ export default async function handler(req, res) {
     const pageCount = documents[0]?.metadata?.page ?
       Math.max(...documents.map(d => d.metadata?.page || 1)) : null;
 
+    // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
+    const db = supabaseAdmin || supabase;
     try {
-      await supabase.from('uploaded_files').insert({
+      await db.from('uploaded_files').insert({
         session_id: sessionId,
         user_id: userId,
         name: fileName,

@@ -1,5 +1,6 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabaseServer';
 import { addDocumentsToStore } from '../../lib/vectorStore';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 
@@ -13,6 +14,9 @@ export default async function handler(req, res) {
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
+  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
+  const db = supabaseAdmin || supabase;
 
   try {
     const { text, title, sessionId } = req.body;
@@ -47,7 +51,7 @@ export default async function handler(req, res) {
     );
 
     // Save to database
-    const { data: fileData, error: dbError } = await supabase
+    const { data: fileData, error: dbError } = await db
       .from('uploaded_files')
       .insert({
         user_id: userId,
