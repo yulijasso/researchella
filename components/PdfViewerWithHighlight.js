@@ -307,72 +307,74 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
         borderBottom="1px solid"
         borderColor="gray.700"
       >
-        <HStack gap={2}>
-          <IconButton
-            icon={<FiChevronLeft size={18} />}
-            size="sm"
-            variant="solid"
-            bg="gray.600"
+        <HStack gap={1}>
+          <Box
+            as="button"
             color="white"
-            _hover={{ bg: "gray.500" }}
-            _disabled={{ opacity: 0.3, cursor: "not-allowed" }}
+            opacity={currentPage <= 1 ? 0.3 : 1}
+            cursor={currentPage <= 1 ? "not-allowed" : "pointer"}
+            _hover={{ opacity: currentPage <= 1 ? 0.3 : 0.7 }}
             onClick={() => {
-              setPageLoaded(false);
-              setCurrentPage(Math.max(1, currentPage - 1));
+              if (currentPage > 1) {
+                setPageLoaded(false);
+                setCurrentPage(currentPage - 1);
+              }
             }}
-            isDisabled={currentPage <= 1}
-            aria-label="Previous page"
-          />
-          <Text color="white" fontSize="sm" minW="120px" textAlign="center">
+            p={1}
+          >
+            <FiChevronLeft size={20} />
+          </Box>
+          <Text color="white" fontSize="sm" minW="100px" textAlign="center">
             Page {currentPage} of {numPages || '...'}
           </Text>
-          <IconButton
-            icon={<FiChevronRight size={18} />}
-            size="sm"
-            variant="solid"
-            bg="gray.600"
+          <Box
+            as="button"
             color="white"
-            _hover={{ bg: "gray.500" }}
-            _disabled={{ opacity: 0.3, cursor: "not-allowed" }}
+            opacity={currentPage >= (numPages || 1) ? 0.3 : 1}
+            cursor={currentPage >= (numPages || 1) ? "not-allowed" : "pointer"}
+            _hover={{ opacity: currentPage >= (numPages || 1) ? 0.3 : 0.7 }}
             onClick={() => {
-              setPageLoaded(false);
-              setCurrentPage(Math.min(numPages || 1, currentPage + 1));
+              if (currentPage < (numPages || 1)) {
+                setPageLoaded(false);
+                setCurrentPage(currentPage + 1);
+              }
             }}
-            isDisabled={currentPage >= (numPages || 1)}
-            aria-label="Next page"
-          />
+            p={1}
+          >
+            <FiChevronRight size={20} />
+          </Box>
         </HStack>
 
-        <HStack gap={2}>
-          <IconButton
-            icon={<FiZoomOut size={18} />}
-            size="sm"
-            variant="solid"
-            bg="gray.600"
+        <HStack gap={1}>
+          <Box
+            as="button"
             color="white"
-            _hover={{ bg: "gray.500" }}
+            cursor="pointer"
+            _hover={{ opacity: 0.7 }}
             onClick={() => {
               setPageLoaded(false);
               setScale(Math.max(0.5, scale - 0.25));
             }}
-            aria-label="Zoom out"
-          />
-          <Text color="white" fontSize="sm" minW="60px" textAlign="center">
+            p={1}
+          >
+            <FiZoomOut size={18} />
+          </Box>
+          <Text color="white" fontSize="sm" minW="50px" textAlign="center">
             {Math.round(scale * 100)}%
           </Text>
-          <IconButton
-            icon={<FiZoomIn size={18} />}
-            size="sm"
-            variant="solid"
-            bg="gray.600"
+          <Box
+            as="button"
             color="white"
-            _hover={{ bg: "gray.500" }}
+            cursor="pointer"
+            _hover={{ opacity: 0.7 }}
             onClick={() => {
               setPageLoaded(false);
               setScale(Math.min(3, scale + 0.25));
             }}
-            aria-label="Zoom in"
-          />
+            p={1}
+          >
+            <FiZoomIn size={18} />
+          </Box>
         </HStack>
       </HStack>
 
