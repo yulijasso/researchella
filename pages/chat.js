@@ -297,7 +297,7 @@ export default function Chat() {
 
                   toaster.create({
                     title: "Import Failed",
-                    description: `${errorMessage} Textbook support coming soon.`,
+                    description: `${errorMessage} Large file support coming soon.`,
                     type: "error",
                     duration: 7000,
                   });
@@ -869,7 +869,7 @@ export default function Chat() {
       if (fileSizeMB > maxSizeMB) {
         toaster.create({
           title: "File Too Large",
-          description: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB. Textbook support coming soon.`,
+          description: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB. Large file support coming soon.`,
           type: "error",
           duration: 7000,
         });
@@ -1036,7 +1036,7 @@ export default function Chat() {
 
         toaster.create({
           title: "Upload Failed",
-          description: `"${file.name}": ${errorMessage} Textbook support coming soon.`,
+          description: `"${file.name}": ${errorMessage} Large file support coming soon.`,
           type: "error",
           duration: 7000,
         });
@@ -3609,7 +3609,7 @@ export default function Chat() {
                               )}
                             </Text>
                             <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
-                              PDF, TXT, MD, CSV, JSON, Images • Textbook support coming soon
+                              PDF, TXT, MD, CSV, JSON, Images • Large file support coming soon
                             </Text>
                           </VStack>
                         </Box>
@@ -3848,7 +3848,7 @@ export default function Chat() {
                             )}
                           </Text>
                           <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
-                            PDF, TXT, MD, CSV, JSON, Images • Textbook support coming soon
+                            PDF, TXT, MD, CSV, JSON, Images • Large file support coming soon
                           </Text>
                         </VStack>
                       </Box>
