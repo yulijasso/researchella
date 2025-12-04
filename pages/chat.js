@@ -75,6 +75,8 @@ export default function Chat() {
   const [gdriveViewerVisible, setGdriveViewerVisible] = useState(false);
   const [currentGdriveFileId, setCurrentGdriveFileId] = useState(null);
   const [currentGdriveFileName, setCurrentGdriveFileName] = useState("");
+  const [currentGdriveCitationText, setCurrentGdriveCitationText] = useState("");
+  const [currentGdrivePage, setCurrentGdrivePage] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
   const [isFetchingGdrivePdf, setIsFetchingGdrivePdf] = useState(false);
   const [showSessionLimitModal, setShowSessionLimitModal] = useState(false);
@@ -2101,6 +2103,8 @@ export default function Chat() {
                         // Fallback to Google Drive iframe viewer
                         setCurrentGdriveFileId(uploadedFile.googleFileId);
                         setCurrentGdriveFileName(uploadedFile.name);
+                        setCurrentGdriveCitationText(getDisplayText());
+                        setCurrentGdrivePage(citation.page || null);
                         setGdriveViewerVisible(true);
                       }
                     }}
@@ -3210,6 +3214,8 @@ export default function Chat() {
                                 // Fallback to Google Drive iframe viewer
                                 setCurrentGdriveFileId(file.googleFileId);
                                 setCurrentGdriveFileName(file.name);
+                                setCurrentGdriveCitationText(""); // No citation when viewing from sources
+                                setCurrentGdrivePage(null);
                                 setGdriveViewerVisible(true);
                               }}
                               aria-label="View file"
@@ -6090,6 +6096,46 @@ export default function Chat() {
                 </Box>
               </HStack>
             </Flex>
+
+            {/* Citation Hint Banner - only show when there's a citation */}
+            {(currentGdriveCitationText || currentGdrivePage) && (
+              <Box
+                px={4}
+                py={3}
+                bg="yellow.50"
+                _dark={{ bg: "yellow.900" }}
+                borderBottom="1px solid"
+                borderColor="yellow.200"
+                _dark={{ borderColor: "yellow.700" }}
+              >
+                {currentGdrivePage && (
+                  <Text fontSize="sm" fontWeight="600" color="yellow.800" _dark={{ color: "yellow.200" }} mb={currentGdriveCitationText ? 1 : 0}>
+                    📍 Look on page {currentGdrivePage}
+                  </Text>
+                )}
+                {currentGdriveCitationText && (
+                  <Box>
+                    <Text fontSize="xs" fontWeight="500" color="yellow.700" _dark={{ color: "yellow.300" }} mb={1}>
+                      Look for this text:
+                    </Text>
+                    <Text
+                      fontSize="sm"
+                      color="yellow.900"
+                      _dark={{ color: "yellow.100" }}
+                      bg="yellow.100"
+                      _dark={{ bg: "yellow.800" }}
+                      px={2}
+                      py={1}
+                      borderRadius="md"
+                      fontStyle="italic"
+                      noOfLines={3}
+                    >
+                      "{currentGdriveCitationText}"
+                    </Text>
+                  </Box>
+                )}
+              </Box>
+            )}
 
             {/* Google Drive Preview iframe */}
             <Box flex={1} overflow="hidden" bg="gray.100" _dark={{ bg: "gray.800" }}>
