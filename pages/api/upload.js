@@ -1227,29 +1227,50 @@ export default async function handler(req, res) {
     const db = supabaseAdmin || supabase;
     console.log(`🔑 Using ${supabaseAdmin ? 'supabaseAdmin (service role)' : 'regular supabase (anon key)'} for database`);
 
+    // Helper to insert file record
+    const insertFileRecord = async () => {
+      return await db.from('uploaded_files').insert({
+        session_id: sessionId,
+        user_id: userId,
+        name: fileName,
+        type: fileType,
+        size: file.size,
+        chunks: result.count,
+        pages: pageCount,
+        pdf_data: fileBase64,
+      }).select().single();
+    };
+
     // Save to database - MUST succeed for file to persist
-    const { data: savedFile, error: dbError } = await db.from('uploaded_files').insert({
-      session_id: sessionId,
-      user_id: userId,
-      name: fileName,
-      type: fileType,
-      size: file.size,
-      chunks: result.count,
-      pages: pageCount,
-      pdf_data: fileBase64,
-    }).select().single();
+    let { data: savedFile, error: dbError } = await insertFileRecord();
+
+    // If foreign key error (session doesn't exist), create session and retry
+    if (dbError && dbError.code === '23503') {
+      console.log(`⚠️ Session ${sessionId} doesn't exist, creating it...`);
+
+      // Create session first
+      const { error: sessionError } = await db.from('sessions').upsert({
+        id: sessionId,
+        user_id: userId,
+        name: 'New Notebook',
+        tutoring_mode: 'direct',
+        message_count: 0,
+      }, { onConflict: 'id' });
+
+      if (sessionError) {
+        console.error('Failed to create session:', sessionError);
+      } else {
+        console.log(`✅ Created session ${sessionId}, retrying file insert...`);
+        // Retry file insert
+        const retryResult = await insertFileRecord();
+        savedFile = retryResult.data;
+        dbError = retryResult.error;
+      }
+    }
 
     if (dbError) {
       console.error('❌ Supabase insert error:', dbError);
       console.error('Error details:', JSON.stringify(dbError, null, 2));
-
-      // Check if it's a foreign key error (session doesn't exist)
-      if (dbError.code === '23503') {
-        return res.status(400).json({
-          error: 'Session not found. Please refresh the page and try again.',
-          details: dbError.message
-        });
-      }
 
       return res.status(500).json({
         error: 'Failed to save file to database',

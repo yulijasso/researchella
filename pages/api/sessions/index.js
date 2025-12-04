@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ sessions: data });
     }
 
-    // POST - Create a new session
+    // POST - Create a new session (or return existing one)
     if (req.method === 'POST') {
       const { id, name, tutoring_mode = 'direct' } = req.body;
 
@@ -35,9 +35,11 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID and name are required' });
       }
 
+      // Use upsert to handle case where session might already exist
+      // This prevents duplicate key errors
       const { data, error } = await db
         .from('sessions')
-        .insert([
+        .upsert(
           {
             id,
             user_id: userId,
@@ -45,11 +47,27 @@ export default async function handler(req, res) {
             tutoring_mode,
             message_count: 0,
           },
-        ])
+          { onConflict: 'id', ignoreDuplicates: false }
+        )
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Session upsert error:', error);
+        // If upsert fails, try to just return the existing session
+        if (error.code === '23505') { // Duplicate key
+          const { data: existing } = await db
+            .from('sessions')
+            .select('*')
+            .eq('id', id)
+            .eq('user_id', userId)
+            .single();
+          if (existing) {
+            return res.status(200).json({ session: existing });
+          }
+        }
+        throw error;
+      }
 
       return res.status(201).json({ session: data });
     }
