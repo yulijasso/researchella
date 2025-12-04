@@ -2947,23 +2947,25 @@ export default function Chat() {
                             {new URL(result.url).hostname.replace('www.', '')}
                           </Text>
                         </VStack>
-                        <Box
+                        <Text
                           as="button"
                           onClick={() => handleAddWebSource(result)}
                           disabled={isUploading}
-                          color="gray.400"
-                          fontSize="18px"
-                          fontWeight="300"
+                          color="gray.600"
+                          fontSize="24px"
+                          fontWeight="400"
                           lineHeight="1"
-                          p={1}
+                          px={2}
                           cursor="pointer"
-                          transition="color 0.15s"
-                          _hover={{ color: "gray.600" }}
-                          _dark={{ color: "gray.500", _hover: { color: "gray.300" } }}
+                          transition="all 0.15s"
+                          _hover={{ color: "gray.900", transform: "scale(1.1)" }}
+                          _dark={{ color: "gray.300", _hover: { color: "white" } }}
                           aria-label="Add to sources"
+                          bg="transparent"
+                          border="none"
                         >
                           +
-                        </Box>
+                        </Text>
                       </HStack>
                     </Box>
                   ))}
