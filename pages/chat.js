@@ -292,18 +292,9 @@ export default function Chat() {
                   // Remove the processing file on error
                   setUploadedFiles(prev => prev.filter(f => !(f.googleFileId === file.id && f.isProcessing)));
 
-                  // Show modal for timeout or large file errors
-                  if (error.name === 'AbortError' || error.message?.includes('too large') || error.message?.includes('timeout')) {
-                    setUploadFailedFileName(file.name);
-                    setShowUploadFailedModal(true);
-                  } else {
-                    toaster.create({
-                      title: "Import Failed",
-                      description: error.message || "Could not import file",
-                      type: "error",
-                      duration: 7000,
-                    });
-                  }
+                  // Show modal for all import failures
+                  setUploadFailedFileName(file.name);
+                  setShowUploadFailedModal(true);
                 } finally {
                   setIsUploading(false);
                 }
@@ -1028,19 +1019,9 @@ export default function Chat() {
       } catch (error) {
         console.error(`Upload error for ${file.name}:`, error);
 
-        // Show modal for timeout or large file errors
-        if (error.name === 'AbortError' || error.message?.includes('too large') || error.message?.includes('timeout')) {
-          setUploadFailedFileName(file.name);
-          setShowUploadFailedModal(true);
-        } else {
-          // Show toast for other errors
-          toaster.create({
-            title: "Upload Failed",
-            description: `"${file.name}": ${error.message || "Failed to process the document."}`,
-            type: "error",
-            duration: 7000,
-          });
-        }
+        // Show modal for all upload failures
+        setUploadFailedFileName(file.name);
+        setShowUploadFailedModal(true);
 
         // Remove the processing file entry on error
         setUploadedFiles(prev => prev.filter(f => !(f.name === file.name && f.isProcessing)));
