@@ -2947,24 +2947,23 @@ export default function Chat() {
                             {new URL(result.url).hostname.replace('www.', '')}
                           </Text>
                         </VStack>
-                        <IconButton
-                          size="xs"
-                          variant="ghost"
-                          icon={<FiPlus size={14} />}
-                          aria-label="Add to sources"
+                        <Box
+                          as="button"
                           onClick={() => handleAddWebSource(result)}
-                          isLoading={isUploading}
+                          disabled={isUploading}
                           color="gray.400"
-                          _hover={{
-                            color: "gray.600",
-                            bg: "gray.200",
-                          }}
-                          _dark={{
-                            color: "gray.500",
-                            _hover: { color: "gray.300", bg: "gray.700" }
-                          }}
-                          borderRadius="full"
-                        />
+                          fontSize="18px"
+                          fontWeight="300"
+                          lineHeight="1"
+                          p={1}
+                          cursor="pointer"
+                          transition="color 0.15s"
+                          _hover={{ color: "gray.600" }}
+                          _dark={{ color: "gray.500", _hover: { color: "gray.300" } }}
+                          aria-label="Add to sources"
+                        >
+                          +
+                        </Box>
                       </HStack>
                     </Box>
                   ))}
@@ -4238,26 +4237,36 @@ export default function Chat() {
                       <Box
                         key={idx}
                         position="relative"
-                        borderRadius="md"
+                        borderRadius="lg"
                         overflow="hidden"
+                        border="1px solid"
+                        borderColor="gray.200"
+                        _dark={{ borderColor: "gray.700" }}
                       >
                         <Box
                           as="img"
-                          src={img.url}
+                          src={img.base64 || img.url}
                           alt={img.fileName}
-                          h="80px"
-                          w="auto"
-                          borderRadius="md"
+                          h="60px"
+                          w="60px"
+                          objectFit="cover"
+                          borderRadius="lg"
                         />
                         <IconButton
-                          icon={<FiX />}
+                          icon={<FiX size={10} />}
                           size="xs"
                           position="absolute"
-                          top={1}
-                          right={1}
-                          colorScheme="red"
+                          top={0}
+                          right={0}
+                          variant="solid"
+                          bg="blackAlpha.600"
+                          color="white"
+                          borderRadius="full"
+                          minW="16px"
+                          h="16px"
                           onClick={() => removeImage(idx)}
                           aria-label="Remove image"
+                          _hover={{ bg: "blackAlpha.800" }}
                         />
                       </Box>
                     ))}
