@@ -4303,15 +4303,22 @@ export default function Chat() {
                           position="absolute"
                           top={-1}
                           right={-1}
-                          color="gray.500"
+                          w="18px"
+                          h="18px"
+                          display="flex"
+                          alignItems="center"
+                          justifyContent="center"
+                          bg="gray.200"
+                          borderRadius="full"
+                          color="gray.600"
                           fontSize="14px"
-                          fontWeight="300"
+                          fontWeight="400"
                           lineHeight="1"
                           cursor="pointer"
                           onClick={() => removeImage(idx)}
                           aria-label="Remove image"
-                          _hover={{ color: "gray.700" }}
-                          _dark={{ color: "gray.400", _hover: { color: "gray.200" } }}
+                          _hover={{ bg: "gray.300", color: "gray.800" }}
+                          _dark={{ bg: "gray.600", color: "gray.200", _hover: { bg: "gray.500", color: "white" } }}
                         >
                           ×
                         </Box>
