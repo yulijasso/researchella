@@ -573,12 +573,19 @@ export default function Chat() {
                 name = parts[0];
               }
 
+              // Detect if it's a PDF based on name (before we strip the ||gdrive: suffix)
+              const originalName = f.name || '';
+              const fileIsPdf = f.type === 'application/pdf' ||
+                               name?.toLowerCase().endsWith('.pdf') ||
+                               originalName?.toLowerCase().endsWith('.pdf');
+
               return {
                 id: f.id,  // Include ID for deletion
                 name: name,
                 chunks: f.chunks,
                 type: f.type,
-                isPDF: f.type === 'application/pdf' || f.name?.endsWith('.pdf'),
+                isPDF: fileIsPdf,
+                isPdf: fileIsPdf, // Also set lowercase for consistency
                 pdfData: f.pdf_data,
                 pages: f.pages,
                 videoId: videoId,
