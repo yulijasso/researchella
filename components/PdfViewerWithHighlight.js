@@ -309,10 +309,13 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
       >
         <HStack gap={2}>
           <IconButton
-            icon={<FiChevronLeft />}
+            icon={<FiChevronLeft size={18} />}
             size="sm"
-            variant="ghost"
-            colorScheme="whiteAlpha"
+            variant="solid"
+            bg="gray.600"
+            color="white"
+            _hover={{ bg: "gray.500" }}
+            _disabled={{ opacity: 0.3, cursor: "not-allowed" }}
             onClick={() => {
               setPageLoaded(false);
               setCurrentPage(Math.max(1, currentPage - 1));
@@ -324,10 +327,13 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
             Page {currentPage} of {numPages || '...'}
           </Text>
           <IconButton
-            icon={<FiChevronRight />}
+            icon={<FiChevronRight size={18} />}
             size="sm"
-            variant="ghost"
-            colorScheme="whiteAlpha"
+            variant="solid"
+            bg="gray.600"
+            color="white"
+            _hover={{ bg: "gray.500" }}
+            _disabled={{ opacity: 0.3, cursor: "not-allowed" }}
             onClick={() => {
               setPageLoaded(false);
               setCurrentPage(Math.min(numPages || 1, currentPage + 1));
@@ -339,10 +345,12 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
 
         <HStack gap={2}>
           <IconButton
-            icon={<FiZoomOut />}
+            icon={<FiZoomOut size={18} />}
             size="sm"
-            variant="ghost"
-            colorScheme="whiteAlpha"
+            variant="solid"
+            bg="gray.600"
+            color="white"
+            _hover={{ bg: "gray.500" }}
             onClick={() => {
               setPageLoaded(false);
               setScale(Math.max(0.5, scale - 0.25));
@@ -353,10 +361,12 @@ export default function PdfViewerWithHighlight({ pdfData, pageNumber = 1, highli
             {Math.round(scale * 100)}%
           </Text>
           <IconButton
-            icon={<FiZoomIn />}
+            icon={<FiZoomIn size={18} />}
             size="sm"
-            variant="ghost"
-            colorScheme="whiteAlpha"
+            variant="solid"
+            bg="gray.600"
+            color="white"
+            _hover={{ bg: "gray.500" }}
             onClick={() => {
               setPageLoaded(false);
               setScale(Math.min(3, scale + 0.25));
