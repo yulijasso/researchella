@@ -54,6 +54,8 @@ export default async function handler(req, res) {
     if (req.method === 'PATCH') {
       const { id, name, tutoring_mode } = req.body;
 
+      console.log('PATCH session request:', { id, name, userId });
+
       if (!id) {
         return res.status(400).json({ error: 'Session ID is required' });
       }
@@ -62,20 +64,28 @@ export default async function handler(req, res) {
       if (name !== undefined) updates.name = name;
       if (tutoring_mode !== undefined) updates.tutoring_mode = tutoring_mode;
 
+      console.log('Updates to apply:', updates);
+
       const { data, error } = await supabase
         .from('sessions')
         .update(updates)
         .eq('id', id)
         .eq('user_id', userId)
-        .select()
-        .single();
+        .select();
+
+      console.log('Supabase response:', { data, error });
 
       if (error) {
         console.error('Supabase update error:', error);
         throw error;
       }
 
-      return res.status(200).json({ session: data });
+      if (!data || data.length === 0) {
+        console.error('No session found to update. ID:', id, 'User:', userId);
+        return res.status(404).json({ error: 'Session not found or you do not have permission to update it' });
+      }
+
+      return res.status(200).json({ session: data[0] });
     }
 
     // DELETE - Delete a session
