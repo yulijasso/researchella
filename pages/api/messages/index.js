@@ -1,4 +1,5 @@
 import { supabase } from '../../../lib/supabase';
+import { supabaseAdmin } from '../../../lib/supabaseServer';
 import { getAuth } from '@clerk/nextjs/server';
 
 export default async function handler(req, res) {
@@ -8,6 +9,9 @@ export default async function handler(req, res) {
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized - Please sign in' });
   }
+
+  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
+  const db = supabaseAdmin || supabase;
 
   try {
     // GET - Fetch all messages for a session
@@ -19,7 +23,7 @@ export default async function handler(req, res) {
       }
 
       // Verify the session belongs to the user
-      const { data: session } = await supabase
+      const { data: session } = await db
         .from('sessions')
         .select('id')
         .eq('id', session_id)
@@ -30,7 +34,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('messages')
         .select('*')
         .eq('session_id', session_id)
@@ -50,7 +54,7 @@ export default async function handler(req, res) {
       }
 
       // Verify the session belongs to the user
-      const { data: session } = await supabase
+      const { data: session } = await db
         .from('sessions')
         .select('id')
         .eq('id', session_id)
@@ -61,7 +65,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('messages')
         .insert([
           {
@@ -89,7 +93,7 @@ export default async function handler(req, res) {
       }
 
       // Verify the session belongs to the user
-      const { data: session } = await supabase
+      const { data: session } = await db
         .from('sessions')
         .select('id')
         .eq('id', session_id)
@@ -100,7 +104,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'Session not found' });
       }
 
-      const { error } = await supabase
+      const { error } = await db
         .from('messages')
         .delete()
         .eq('session_id', session_id)

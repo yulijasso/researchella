@@ -1074,8 +1074,10 @@ export default async function handler(req, res) {
 
     // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
     const db = supabaseAdmin || supabase;
+    console.log(`🔑 Using ${supabaseAdmin ? 'supabaseAdmin (service role)' : 'regular supabase (anon key)'} for database`);
+
     try {
-      await db.from('uploaded_files').insert({
+      const { data, error } = await db.from('uploaded_files').insert({
         session_id: sessionId,
         user_id: userId,
         name: fileName,
@@ -1084,10 +1086,17 @@ export default async function handler(req, res) {
         chunks: result.count,
         pages: pageCount,
         pdf_data: fileBase64,
-      });
-      console.log(`Saved file metadata to Supabase: ${fileName}`);
+      }).select();
+
+      if (error) {
+        console.error('❌ Supabase insert error:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
+      } else {
+        console.log(`✅ Saved file metadata to Supabase: ${fileName} (ID: ${data?.[0]?.id})`);
+      }
     } catch (dbError) {
-      console.error('Error saving file to Supabase:', dbError);
+      console.error('❌ Error saving file to Supabase:', dbError);
+      console.error('Error message:', dbError.message);
     }
 
     // Determine processing method for response
