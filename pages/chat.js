@@ -2257,8 +2257,10 @@ export default function Chat() {
       // Check if content contains citation markers
       const hasCitationMarkers = /\[CHUNK-\d+(?::"[^"]*"|:[\d,-]+)?\]/.test(content);
 
-      if (msg.citations || hasCitationMarkers) {
-        const messageCitations = msg.citations || []; // Use citations from this message or empty array
+      // IMPORTANT: DB stores citations as 'sources', but fresh messages use 'citations'
+      const msgCitations = msg.citations || msg.sources;
+      if (msgCitations || hasCitationMarkers) {
+        const messageCitations = msgCitations || []; // Use citations from this message or empty array
 
         // Parse all citation formats and replace with hover citations
         // Matches: [CHUNK-N], [CHUNK-N:S], [CHUNK-N:"verbatim quote"]
