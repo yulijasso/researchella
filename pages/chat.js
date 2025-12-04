@@ -2728,21 +2728,17 @@ export default function Chat() {
               This file exceeds our current processing limits. We're actively working on expanding support for larger files.
             </Text>
 
-            <VStack gap={3}>
-              <Button
-                bg="gray.900"
-                color="white"
-                _hover={{ bg: "gray.800" }}
-                _dark={{ bg: "white", color: "gray.900", _hover: { bg: "gray.100" } }}
-                size="md"
-                w="full"
-                borderRadius="lg"
-                fontWeight="500"
-                onClick={() => setShowUploadFailedModal(false)}
-              >
-                Got it
-              </Button>
-            </VStack>
+            <Button
+              variant="ghost"
+              size="sm"
+              color="gray.500"
+              fontWeight="400"
+              _hover={{ color: "gray.700", bg: "gray.100" }}
+              _dark={{ color: "gray.400", _hover: { color: "gray.200", bg: "gray.700" } }}
+              onClick={() => setShowUploadFailedModal(false)}
+            >
+              Dismiss
+            </Button>
           </Box>
         </Box>
       )}
