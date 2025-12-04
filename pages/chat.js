@@ -75,6 +75,8 @@ export default function Chat() {
   const [gdriveViewerVisible, setGdriveViewerVisible] = useState(false);
   const [currentGdriveFileId, setCurrentGdriveFileId] = useState(null);
   const [currentGdriveFileName, setCurrentGdriveFileName] = useState("");
+  const [googleAccessToken, setGoogleAccessToken] = useState(null);
+  const [isFetchingGdrivePdf, setIsFetchingGdrivePdf] = useState(false);
   const [showSessionLimitModal, setShowSessionLimitModal] = useState(false);
   const [showUploadFailedModal, setShowUploadFailedModal] = useState(false);
   const [uploadFailedFileName, setUploadFailedFileName] = useState("");
@@ -217,6 +219,7 @@ export default function Chat() {
           }
 
           const accessToken = tokenResponse.access_token;
+          setGoogleAccessToken(accessToken); // Store for later use
 
           // Create and show the picker
           const picker = new window.google.picker.PickerBuilder()
@@ -2055,7 +2058,7 @@ export default function Chat() {
                     variant="ghost"
                     mt={2}
                     w="full"
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
                       // Find the uploaded file to get PDF data
                       const uploadedFile = uploadedFiles.find(f => f.name === citation.source);
@@ -2067,7 +2070,35 @@ export default function Chat() {
                         setCurrentHighlightText(displayedText);
                         setPdfViewerVisible(true);
                       } else if (uploadedFile?.googleFileId) {
-                        // Open in-app Google Drive viewer
+                        // Try to fetch PDF from Google Drive for highlighting
+                        if (googleAccessToken && uploadedFile.isPdf !== false) {
+                          setIsFetchingGdrivePdf(true);
+                          try {
+                            const response = await fetch(
+                              `https://www.googleapis.com/drive/v3/files/${uploadedFile.googleFileId}?alt=media`,
+                              { headers: { 'Authorization': `Bearer ${googleAccessToken}` } }
+                            );
+                            if (response.ok) {
+                              const blob = await response.blob();
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                const base64data = reader.result;
+                                setCurrentPdfData(base64data);
+                                setCurrentPdfPage(citation.page || 1);
+                                const displayedText = getDisplayText();
+                                setCurrentHighlightText(displayedText);
+                                setPdfViewerVisible(true);
+                                setIsFetchingGdrivePdf(false);
+                              };
+                              reader.readAsDataURL(blob);
+                              return;
+                            }
+                          } catch (err) {
+                            console.log('Could not fetch PDF from Drive:', err);
+                          }
+                          setIsFetchingGdrivePdf(false);
+                        }
+                        // Fallback to Google Drive iframe viewer
                         setCurrentGdriveFileId(uploadedFile.googleFileId);
                         setCurrentGdriveFileName(uploadedFile.name);
                         setGdriveViewerVisible(true);
@@ -2077,9 +2108,11 @@ export default function Chat() {
                     color="#4F46E5"
                     _hover={{ bg: "#EEF2FF" }}
                     _dark={{ color: "#818CF8", _hover: { bg: "#312E81" } }}
-                    leftIcon={<FiExternalLink size={12} />}
+                    leftIcon={isFetchingGdrivePdf ? <Spinner size="xs" /> : <FiExternalLink size={12} />}
+                    isDisabled={isFetchingGdrivePdf}
                   >
                     {(() => {
+                      if (isFetchingGdrivePdf) return 'Loading...';
                       const uploadedFile = uploadedFiles.find(f => f.name === citation.source);
                       return uploadedFile?.pdfData ? 'Open PDF' : (uploadedFile?.googleFileId ? 'View File' : 'Open PDF');
                     })()}
@@ -3145,8 +3178,36 @@ export default function Chat() {
                               color="gray.400"
                               _dark={{ color: "gray.500" }}
                               _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
-                              onClick={(e) => {
+                              onClick={async (e) => {
                                 e.stopPropagation();
+                                // Try to fetch PDF from Google Drive for native viewer
+                                if (googleAccessToken && file.isPdf !== false) {
+                                  setIsFetchingGdrivePdf(true);
+                                  try {
+                                    const response = await fetch(
+                                      `https://www.googleapis.com/drive/v3/files/${file.googleFileId}?alt=media`,
+                                      { headers: { 'Authorization': `Bearer ${googleAccessToken}` } }
+                                    );
+                                    if (response.ok) {
+                                      const blob = await response.blob();
+                                      const reader = new FileReader();
+                                      reader.onloadend = () => {
+                                        const base64data = reader.result;
+                                        setCurrentPdfData(base64data);
+                                        setCurrentPdfPage(1);
+                                        setCurrentHighlightText("");
+                                        setPdfViewerVisible(true);
+                                        setIsFetchingGdrivePdf(false);
+                                      };
+                                      reader.readAsDataURL(blob);
+                                      return;
+                                    }
+                                  } catch (err) {
+                                    console.log('Could not fetch PDF from Drive:', err);
+                                  }
+                                  setIsFetchingGdrivePdf(false);
+                                }
+                                // Fallback to Google Drive iframe viewer
                                 setCurrentGdriveFileId(file.googleFileId);
                                 setCurrentGdriveFileName(file.name);
                                 setGdriveViewerVisible(true);
@@ -3155,7 +3216,7 @@ export default function Chat() {
                               zIndex={10}
                               title="View file"
                             >
-                              <FiExternalLink size={14} />
+                              {isFetchingGdrivePdf ? <Spinner size="xs" /> : <FiExternalLink size={14} />}
                             </Box>
                           )}
                           {/* Delete/Cancel button - always visible */}
