@@ -552,10 +552,10 @@ export default function Chat() {
 
             setMessages(parsedMessages);
 
-            // Extract citations from loaded messages
+            // Extract citations from loaded messages (stored as 'sources' in DB)
             const citations = parsedMessages
-              .filter(m => m.citations)
-              .flatMap(m => m.citations);
+              .filter(m => m.sources)
+              .flatMap(m => m.sources);
             setAllCitations(citations);
           }
 

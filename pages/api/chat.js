@@ -4,6 +4,7 @@ import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
 import { findExactQuote, extractVerbatimQuotes, enhanceCitationsWithVerbatim } from '../../lib/verbatimMatcher';
 import { getTokenSafeMessages, processWithMemory } from '../../lib/conversationMemory';
+import { cleanTextWithGPT } from '../../lib/gptTextCleaner';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -560,6 +561,33 @@ IF YOU DO NOT INCLUDE QUOTES, YOUR CITATIONS WILL BE WRONG
         }
       }
     });
+
+    // Clean citation text using GPT if needed (fixes PDF extraction issues like concatenated words)
+    if (finalCitations.length > 0) {
+      console.log(`🧹 Cleaning citation text with GPT...`);
+      const cleaningPromises = finalCitations.map(async (citation) => {
+        try {
+          // Clean quote text if it looks problematic (has long runs of letters without spaces)
+          if (citation.quote && (citation.quote.match(/[a-z]{15,}/i) || citation.quote.split(/\s+/).some(w => w.length > 20))) {
+            const cleanedQuote = await cleanTextWithGPT(citation.quote);
+            if (cleanedQuote !== citation.quote) {
+              console.log(`   Cleaned: "${citation.quote.substring(0, 40)}..." -> "${cleanedQuote.substring(0, 40)}..."`);
+              citation.quote = cleanedQuote;
+            }
+          }
+          // Clean highlightText too if different from quote
+          if (citation.highlightText && citation.highlightText !== citation.quote) {
+            if (citation.highlightText.match(/[a-z]{15,}/i) || citation.highlightText.split(/\s+/).some(w => w.length > 20)) {
+              citation.highlightText = await cleanTextWithGPT(citation.highlightText);
+            }
+          }
+        } catch (cleanError) {
+          console.error(`   Error cleaning citation: ${cleanError.message}`);
+        }
+        return citation;
+      });
+      await Promise.all(cleaningPromises);
+    }
 
     console.log(`📤 Sending ${finalCitations.length} citations to frontend`);
     finalCitations.forEach((c, i) => console.log(`  [${i+1}] id:${c.id} source:${c.source} page:${c.page}`));

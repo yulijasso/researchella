@@ -3,6 +3,7 @@ import {
   getSessionFiles,
   deleteFile,
   useMongoDb,
+  useTurso,
   getDb,
 } from '../../lib/dbHelpers';
 
@@ -15,6 +16,15 @@ async function getMongoLib() {
   return mongoLib;
 }
 
+// For Turso operations we need direct access
+let tursoLib = null;
+async function getTursoLib() {
+  if (!tursoLib && useTurso) {
+    tursoLib = await import('../../lib/turso.js');
+  }
+  return tursoLib;
+}
+
 export default async function handler(req, res) {
   const { userId } = getAuth(req);
 
@@ -22,7 +32,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  console.log(`📦 Files API using ${useMongoDb ? 'MongoDB' : 'Supabase'}`);
+  console.log(`📦 Files API using ${useTurso ? 'Turso' : useMongoDb ? 'MongoDB' : 'Supabase'}`);
 
   // GET - List files for a session
   if (req.method === 'GET') {
@@ -78,6 +88,48 @@ export default async function handler(req, res) {
           file: {
             id: file._id.toString(),
             name: file.name,
+            type: file.type,
+          }
+        });
+      }
+
+      // Turso path
+      if (useTurso) {
+        const turso = await getTursoLib();
+        const db = turso.getDb();
+
+        // Get file first
+        const fileResult = await db.execute({
+          sql: 'SELECT * FROM files WHERE id = ? AND user_id = ?',
+          args: [id, userId]
+        });
+
+        if (fileResult.rows.length === 0) {
+          return res.status(404).json({ error: 'File not found' });
+        }
+
+        const file = fileResult.rows[0];
+
+        // For YouTube/URL sources, preserve the ||videoId or ||url suffix
+        let newName = name;
+        if (file.type === 'youtube' && file.name.includes('||')) {
+          const videoId = file.name.split('||')[1];
+          newName = `${name}||${videoId}`;
+        } else if (file.type === 'url' && file.name.includes('||')) {
+          const url = file.name.split('||')[1];
+          newName = `${name}||${url}`;
+        }
+
+        await db.execute({
+          sql: 'UPDATE files SET name = ? WHERE id = ? AND user_id = ?',
+          args: [newName, id, userId]
+        });
+
+        return res.status(200).json({
+          success: true,
+          file: {
+            id: file.id,
+            name: newName,
             type: file.type,
           }
         });
