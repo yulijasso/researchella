@@ -3700,7 +3700,7 @@ export default function Chat() {
                               )}
                             </Text>
                             <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
-                              PDF, TXT, MD, CSV, JSON, Images
+                              PDF, Docs, Sheets, Slides, TXT, Images
                             </Text>
                           </VStack>
                         </Box>
@@ -3939,7 +3939,7 @@ export default function Chat() {
                             )}
                           </Text>
                           <Text fontSize="10px" color="gray.400" _dark={{ color: "gray.500" }}>
-                            PDF, TXT, MD, CSV, JSON, Images
+                            PDF, Docs, Sheets, Slides, TXT, Images
                           </Text>
                         </VStack>
                       </Box>
