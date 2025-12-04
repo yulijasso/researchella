@@ -3743,7 +3743,7 @@ export default function Chat() {
                               </Box>
                               <VStack gap={0}>
                                 <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Google Drive</Text>
-                                <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">PDF, Docs, Sheets</Text>
+                                <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">PDF, Docs, Sheets, Slides</Text>
                               </VStack>
                             </VStack>
                           </Box>
@@ -3982,7 +3982,7 @@ export default function Chat() {
                             </Box>
                             <VStack gap={0}>
                               <Text fontWeight="600" fontSize="sm" _dark={{ color: "white" }} textAlign="center">Google Drive</Text>
-                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">PDF, Docs, Sheets</Text>
+                              <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} textAlign="center">PDF, Docs, Sheets, Slides</Text>
                             </VStack>
                           </VStack>
                         </Box>
