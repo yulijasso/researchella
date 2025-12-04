@@ -1129,14 +1129,24 @@ export default function Chat() {
       return;
     }
 
+    // Get session ID from URL
+    const currentSessionId = sessionId || router.query.session;
+
+    if (!currentSessionId) {
+      console.error('No session ID available for rename');
+      toaster.create({ title: "Failed to rename", description: "Session not found", type: "error", duration: 3000 });
+      setIsEditingSessionName(false);
+      return;
+    }
+
     const newName = editedSessionName.trim();
-    console.log('Renaming session:', { sessionId, oldName: sessionName, newName });
+    console.log('Renaming session:', { sessionId: currentSessionId, oldName: sessionName, newName });
 
     try {
       const response = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: sessionId, name: newName }),
+        body: JSON.stringify({ id: currentSessionId, name: newName }),
       });
 
       const responseData = await response.json();
