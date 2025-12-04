@@ -3016,52 +3016,55 @@ export default function Chat() {
                               </Text>
                             )}
                           </VStack>
-                          {!file.isProcessing && (
-                            <>
-                              {/* View in Drive button for Google Drive files */}
-                              {file.type === 'google-drive' && file.googleFileId && (
-                                <Box
-                                  as="a"
-                                  href={`https://drive.google.com/file/d/${file.googleFileId}/view`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  position="absolute"
-                                  top={2}
-                                  right={7}
-                                  p={1}
-                                  cursor="pointer"
-                                  color="gray.400"
-                                  _dark={{ color: "gray.500" }}
-                                  _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  aria-label="View in Google Drive"
-                                  zIndex={10}
-                                  title="View in Google Drive"
-                                >
-                                  <FiExternalLink size={14} />
-                                </Box>
-                              )}
-                              <Box
-                                as="button"
-                                position="absolute"
-                                top={2}
-                                right={2}
-                                p={1}
-                                cursor="pointer"
-                                color="gray.400"
-                                _dark={{ color: "gray.500" }}
-                                _hover={{ color: "red.500", _dark: { color: "red.400" } }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteFile(idx);
-                                }}
-                                aria-label="Delete file"
-                                zIndex={10}
-                              >
-                                <FiX size={14} />
-                              </Box>
-                            </>
+                          {/* View in Drive button for Google Drive files */}
+                          {!file.isProcessing && file.type === 'google-drive' && file.googleFileId && (
+                            <Box
+                              as="a"
+                              href={`https://drive.google.com/file/d/${file.googleFileId}/view`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              position="absolute"
+                              top={2}
+                              right={7}
+                              p={1}
+                              cursor="pointer"
+                              color="gray.400"
+                              _dark={{ color: "gray.500" }}
+                              _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label="View in Google Drive"
+                              zIndex={10}
+                              title="View in Google Drive"
+                            >
+                              <FiExternalLink size={14} />
+                            </Box>
                           )}
+                          {/* Delete/Cancel button - always visible */}
+                          <Box
+                            as="button"
+                            position="absolute"
+                            top={2}
+                            right={2}
+                            p={1}
+                            cursor="pointer"
+                            color="gray.400"
+                            _dark={{ color: "gray.500" }}
+                            _hover={{ color: "red.500", _dark: { color: "red.400" } }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (file.isProcessing) {
+                                // Just remove from list for processing files
+                                setUploadedFiles(prev => prev.filter((_, i) => i !== idx));
+                              } else {
+                                handleDeleteFile(idx);
+                              }
+                            }}
+                            aria-label={file.isProcessing ? "Cancel processing" : "Delete file"}
+                            zIndex={10}
+                            title={file.isProcessing ? "Cancel" : "Delete"}
+                          >
+                            <FiX size={14} />
+                          </Box>
                         </HStack>
 
                         {/* YouTube Video Embed */}
