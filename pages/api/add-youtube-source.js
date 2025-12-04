@@ -1,6 +1,7 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+import { safeInsertFile } from '../../lib/dbHelpers';
 import { addDocumentsToStore } from '../../lib/vectorStore';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { Innertube } from 'youtubei.js';
@@ -216,18 +217,14 @@ export default async function handler(req, res) {
       userId
     );
 
-    // Save to database (store videoId in name for URL construction later)
-    const { data: fileData, error: dbError } = await db
-      .from('uploaded_files')
-      .insert({
-        user_id: userId,
-        session_id: sessionId,
-        name: `${title}||${videoId}`, // Store videoId with title for URL reconstruction
-        type: 'youtube',
-        chunks: chunks.length,
-      })
-      .select()
-      .single();
+    // Save to database - use safeInsertFile which auto-creates session if needed
+    const { data: fileData, error: dbError } = await safeInsertFile({
+      user_id: userId,
+      session_id: sessionId,
+      name: `${title}||${videoId}`, // Store videoId with title for URL reconstruction
+      type: 'youtube',
+      chunks: chunks.length,
+    });
 
     if (dbError) {
       console.error('Database error:', dbError);

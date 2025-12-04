@@ -4,6 +4,7 @@ import { getAuth } from '@clerk/nextjs/server';
 import { addDocumentsToStore } from "../../lib/vectorStore";
 import { supabase } from '../../lib/supabase';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+import { safeInsertFile } from '../../lib/dbHelpers';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -64,18 +65,14 @@ export default async function handler(req, res) {
 
     const title = extractedData.title || 'Untitled Document';
 
-    // Save to database for @mention and file listing
-    const { data: fileData, error: dbError } = await db
-      .from('uploaded_files')
-      .insert({
-        user_id: userId,
-        session_id: sessionId,
-        name: `${title}||${url}`, // Store URL with title for reference
-        type: 'url',
-        chunks: result.count,
-      })
-      .select()
-      .single();
+    // Save to database - use safeInsertFile which auto-creates session if needed
+    const { data: fileData, error: dbError } = await safeInsertFile({
+      user_id: userId,
+      session_id: sessionId,
+      name: `${title}||${url}`, // Store URL with title for reference
+      type: 'url',
+      chunks: result.count,
+    });
 
     if (dbError) {
       console.error('Database error (non-fatal):', dbError);

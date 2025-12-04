@@ -4,6 +4,7 @@ import path from "path";
 import { getAuth } from "@clerk/nextjs/server";
 import { supabase } from "../../lib/supabase";
 import { supabaseAdmin } from "../../lib/supabaseServer";
+import { safeInsertFile } from "../../lib/dbHelpers";
 
 export const config = {
   api: {
@@ -76,22 +77,18 @@ export default async function handler(req, res) {
     // Get sessionId from form fields if provided
     const sessionId = fields.sessionId?.[0] || fields.sessionId;
 
-    // Save to database if sessionId and userId are provided
+    // Save to database if sessionId and userId are provided - use safeInsertFile
     let fileId = null;
     if (sessionId && userId) {
       try {
-        const { data: fileData, error: dbError } = await db
-          .from('uploaded_files')
-          .insert({
-            user_id: userId,
-            session_id: sessionId,
-            name: fileName,
-            type: 'image',
-            chunks: 1,
-            pdf_data: base64Data, // Store base64 for image viewing
-          })
-          .select()
-          .single();
+        const { data: fileData, error: dbError } = await safeInsertFile({
+          user_id: userId,
+          session_id: sessionId,
+          name: fileName,
+          type: 'image',
+          chunks: 1,
+          pdf_data: base64Data, // Store base64 for image viewing
+        });
 
         if (dbError) {
           console.error('Database error saving image:', dbError);

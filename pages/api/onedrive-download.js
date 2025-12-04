@@ -1,6 +1,7 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
 import { supabaseAdmin } from '../../lib/supabaseServer';
+import { safeInsertFile } from '../../lib/dbHelpers';
 import { addDocumentsToStore } from '../../lib/vectorStore';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import officeParser from 'officeparser';
@@ -164,11 +165,8 @@ export default async function handler(req, res) {
       insertData.pdf_data = pdfDataBase64;
     }
 
-    const { data: fileData, error: dbError } = await db
-      .from('uploaded_files')
-      .insert(insertData)
-      .select()
-      .single();
+    // Use safeInsertFile which auto-creates session if needed
+    const { data: fileData, error: dbError } = await safeInsertFile(insertData);
 
     if (dbError) {
       console.error('Database error:', dbError);
