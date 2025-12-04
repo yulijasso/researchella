@@ -132,23 +132,25 @@ export default async function handler(req, res) {
     let exportMimeType = mimeType;
     let isGoogleWorkspaceFile = false;
 
-    // Google Workspace files - use DIRECT EXPORT URLs (bypasses 10MB API limit!)
-    // Reference: https://stackoverflow.com/questions/50612407/strategies-to-googledrive-api-limit-export-download-10-mb
+    // Google Workspace files - use Google Drive API export endpoint
     if (mimeType === 'application/vnd.google-apps.document') {
-      // Google Docs -> export as docx via direct URL (no size limit)
-      downloadUrl = `https://docs.google.com/document/d/${fileId}/export?format=docx`;
+      // Google Docs -> export as docx
       exportMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`;
       isGoogleWorkspaceFile = true;
+      console.log(`📄 Exporting Google Doc as docx`);
     } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
-      // Google Sheets -> export as xlsx via direct URL (no size limit)
-      downloadUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=xlsx`;
+      // Google Sheets -> export as xlsx
       exportMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`;
       isGoogleWorkspaceFile = true;
+      console.log(`📊 Exporting Google Sheet as xlsx`);
     } else if (mimeType === 'application/vnd.google-apps.presentation') {
-      // Google Slides -> export as pptx via direct URL (no size limit)
-      downloadUrl = `https://docs.google.com/presentation/d/${fileId}/export/pptx`;
+      // Google Slides -> export as pptx
       exportMimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`;
       isGoogleWorkspaceFile = true;
+      console.log(`📽️ Exporting Google Slides as pptx`);
     } else {
       // Regular files - direct download
       downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
