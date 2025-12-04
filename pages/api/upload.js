@@ -404,8 +404,9 @@ async function processPDFFast(filePath, fileName, fileSize) {
   const hasPython = !isServerless && fs.existsSync(pythonPath);
 
   if (!hasPython) {
-    console.log('⚠️ Python not available - falling back to JS extraction');
-    return processPDF(filePath, fileName);
+    console.log('⚠️ Python not available - using JS fast extraction (no GPT cleaning)');
+    // Use JS-based extraction WITH fast chunking (no GPT)
+    return processPDFJSFast(filePath, fileName);
   }
 
   try {
@@ -449,9 +450,164 @@ async function processPDFFast(filePath, fileName, fileSize) {
     return chunks;
 
   } catch (error) {
-    console.log(`⚠️ Fast mode failed: ${error.message}, falling back to standard`);
-    // Fall back to standard processing
-    return processPDF(filePath, fileName);
+    console.log(`⚠️ Python fast mode failed: ${error.message}, trying JS fast extraction`);
+    // Fall back to JS fast extraction (not the slow GPT version)
+    return processPDFJSFast(filePath, fileName);
+  }
+}
+
+// JS-only fast PDF extraction - uses pdf2json/pdfjs-dist + regex cleaning, NO GPT
+async function processPDFJSFast(filePath, fileName) {
+  console.log(`⚡ JS FAST MODE: Processing PDF ${fileName} (no Python, no GPT)`);
+  const startTime = Date.now();
+
+  // Try pdf2json first (usually faster)
+  try {
+    console.log('📚 Using pdf2json for fast extraction...');
+    const PDFParser = (await import("pdf2json")).default;
+    const pdfParser = new PDFParser();
+
+    const chunks = await new Promise((resolve, reject) => {
+      pdfParser.on("pdfParser_dataError", errData => reject(errData));
+      pdfParser.on("pdfParser_dataReady", async (pdfData) => {
+        const allChunks = [];
+
+        if (pdfData && pdfData.Pages) {
+          const totalPages = pdfData.Pages.length;
+          console.log(`Processing ${totalPages} pages in fast mode...`);
+
+          for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+            const page = pdfData.Pages[pageIndex];
+            let pageText = "";
+            let lastX = 0;
+            let lastY = 0;
+
+            if (page.Texts) {
+              for (const text of page.Texts) {
+                const x = text.x || 0;
+                const y = text.y || 0;
+
+                if (text.R) {
+                  for (const r of text.R) {
+                    if (r.T) {
+                      let decodedText = "";
+                      try {
+                        decodedText = decodeURIComponent(r.T);
+                      } catch (e) {
+                        decodedText = r.T;
+                      }
+
+                      if (pageText.length > 0) {
+                        const verticalGap = Math.abs(y - lastY);
+                        if (verticalGap > 0.3) {
+                          pageText += "\n";
+                        } else if (!pageText.endsWith(" ") && !pageText.endsWith("\n")) {
+                          pageText += " ";
+                        }
+                      }
+
+                      pageText += decodedText;
+                      lastX = x + (text.w || 0);
+                      lastY = y;
+                    }
+                  }
+                }
+              }
+            }
+
+            // Use FAST chunking (no GPT)
+            if (pageText.trim().length > 50) {
+              const pageChunks = fastChunkText(pageText, fileName, "pdf-fast", pageIndex + 1);
+              allChunks.push(...pageChunks);
+            }
+
+            if (totalPages > 50 && (pageIndex + 1) % 25 === 0) {
+              console.log(`⚡ Fast processed ${pageIndex + 1}/${totalPages} pages...`);
+            }
+          }
+        }
+
+        if (allChunks.length > 0) {
+          resolve(allChunks);
+        } else {
+          reject(new Error("No text extracted"));
+        }
+      });
+
+      pdfParser.loadPDF(filePath);
+    });
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`⚡ JS FAST MODE complete: ${chunks.length} chunks in ${elapsed}s`);
+    return chunks;
+
+  } catch (pdf2jsonError) {
+    console.log(`pdf2json failed: ${pdf2jsonError.message}, trying pdfjs-dist...`);
+  }
+
+  // Fallback to pdfjs-dist
+  try {
+    const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = new Uint8Array(dataBuffer);
+
+    const loadingTask = pdfjsLib.getDocument({ data });
+    const pdf = await loadingTask.promise;
+
+    const chunks = [];
+    const numPages = pdf.numPages;
+    console.log(`Processing ${numPages} pages with pdfjs-dist in fast mode...`);
+
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+
+      let pageText = "";
+      let lastY = 0;
+
+      textContent.items.forEach((item, index) => {
+        const str = item.str.trim();
+        if (!str) return;
+
+        const y = item.transform[5];
+
+        if (index > 0) {
+          const verticalGap = Math.abs(y - lastY);
+          if (verticalGap > 2) {
+            pageText += "\n";
+          } else {
+            pageText += " ";
+          }
+        }
+
+        pageText += str;
+        lastY = y;
+      });
+
+      // Use FAST chunking (no GPT)
+      if (pageText.trim().length > 50) {
+        const pageChunks = fastChunkText(pageText, fileName, "pdf-fast", i);
+        chunks.push(...pageChunks);
+      }
+
+      if (numPages > 50 && i % 25 === 0) {
+        console.log(`⚡ Fast processed ${i}/${numPages} pages...`);
+      }
+    }
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`⚡ JS FAST MODE (pdfjs) complete: ${chunks.length} chunks in ${elapsed}s`);
+
+    if (chunks.length > 0) {
+      return chunks;
+    }
+    throw new Error("No text extracted");
+
+  } catch (pdfjsError) {
+    console.error(`All JS extraction methods failed: ${pdfjsError.message}`);
+    throw new Error(`Could not extract text from PDF: ${pdfjsError.message}`);
   }
 }
 
