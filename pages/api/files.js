@@ -1,5 +1,6 @@
 import { getAuth } from '@clerk/nextjs/server';
 import { supabase } from '../../lib/supabase';
+import { supabaseAdmin } from '../../lib/supabaseServer';
 
 export default async function handler(req, res) {
   const { userId } = getAuth(req);
@@ -7,6 +8,9 @@ export default async function handler(req, res) {
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
+  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
+  const db = supabaseAdmin || supabase;
 
   // GET - List files for a session
   if (req.method === 'GET') {
@@ -17,7 +21,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const { data: files, error } = await supabase
+      const { data: files, error } = await db
         .from('uploaded_files')
         .select('*')
         .eq('session_id', session_id)
@@ -46,7 +50,7 @@ export default async function handler(req, res) {
 
     try {
       // First get the current file to check ownership and get type
-      const { data: file, error: fetchError } = await supabase
+      const { data: file, error: fetchError } = await db
         .from('uploaded_files')
         .select('*')
         .eq('id', id)
@@ -68,7 +72,7 @@ export default async function handler(req, res) {
       }
 
       // Update the file name
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('uploaded_files')
         .update({ name: newName })
         .eq('id', id)
@@ -97,7 +101,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const { error } = await supabase
+      const { error } = await db
         .from('uploaded_files')
         .delete()
         .eq('id', id)

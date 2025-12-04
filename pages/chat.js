@@ -1129,8 +1129,17 @@ export default function Chat() {
       return;
     }
 
-    // Get session ID from URL
-    const currentSessionId = sessionId || router.query.session;
+    // Get session ID from URL - try multiple sources
+    const currentSessionId = sessionId || router.query.session || window.location.search.match(/session=([^&]+)/)?.[1];
+
+    console.log('DEBUG rename:', {
+      sessionId,
+      routerQuery: router.query,
+      currentSessionId,
+      isReady: router.isReady,
+      pathname: router.pathname,
+      asPath: router.asPath
+    });
 
     if (!currentSessionId) {
       console.error('No session ID available for rename');
