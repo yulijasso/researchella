@@ -2950,18 +2950,24 @@ export default function Chat() {
                         </VStack>
                         <IconButton
                           size="sm"
-                          variant="ghost"
+                          variant="outline"
                           icon={<FiPlus />}
                           aria-label="Add to sources"
                           onClick={() => handleAddWebSource(result)}
                           isLoading={isUploading}
-                          color="gray.500"
+                          color="gray.700"
+                          borderColor="gray.300"
+                          bg="white"
                           _hover={{
-                            bg: "gray.200",
-                            color: "gray.700",
-                            _dark: { bg: "gray.700", color: "white" }
+                            bg: "gray.100",
+                            borderColor: "gray.400",
                           }}
-                          _dark={{ color: "gray.400" }}
+                          _dark={{
+                            color: "gray.200",
+                            borderColor: "gray.600",
+                            bg: "gray.800",
+                            _hover: { bg: "gray.700", borderColor: "gray.500" }
+                          }}
                           borderRadius="md"
                         />
                       </HStack>
