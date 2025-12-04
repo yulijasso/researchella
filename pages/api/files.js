@@ -1,6 +1,19 @@
 import { getAuth } from '@clerk/nextjs/server';
-import { supabase } from '../../lib/supabase';
-import { supabaseAdmin } from '../../lib/supabaseServer';
+import {
+  getSessionFiles,
+  deleteFile,
+  useMongoDb,
+  getDb,
+} from '../../lib/dbHelpers';
+
+// For MongoDB operations we need direct access
+let mongoLib = null;
+async function getMongoLib() {
+  if (!mongoLib && useMongoDb) {
+    mongoLib = await import('../../lib/mongodb.js');
+  }
+  return mongoLib;
+}
 
 export default async function handler(req, res) {
   const { userId } = getAuth(req);
@@ -9,8 +22,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
-  const db = supabaseAdmin || supabase;
+  console.log(`📦 Files API using ${useMongoDb ? 'MongoDB' : 'Supabase'}`);
 
   // GET - List files for a session
   if (req.method === 'GET') {
@@ -21,18 +33,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const { data: files, error } = await db
-        .from('uploaded_files')
-        .select('*')
-        .eq('session_id', session_id)
-        .eq('user_id', userId)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching files:', error);
-        return res.status(500).json({ error: 'Failed to fetch files' });
-      }
-
+      const files = await getSessionFiles(session_id, userId);
       return res.status(200).json({ files: files || [] });
     } catch (error) {
       console.error('Error fetching files:', error);
@@ -49,6 +50,42 @@ export default async function handler(req, res) {
     }
 
     try {
+      if (useMongoDb) {
+        const mongo = await getMongoLib();
+        await mongo.connectToDatabase();
+
+        // Get file first
+        const file = await mongo.File.findOne({ _id: id, userId });
+        if (!file) {
+          return res.status(404).json({ error: 'File not found' });
+        }
+
+        // For YouTube/URL sources, preserve the ||videoId or ||url suffix
+        let newName = name;
+        if (file.type === 'youtube' && file.name.includes('||')) {
+          const videoId = file.name.split('||')[1];
+          newName = `${name}||${videoId}`;
+        } else if (file.type === 'url' && file.name.includes('||')) {
+          const url = file.name.split('||')[1];
+          newName = `${name}||${url}`;
+        }
+
+        file.name = newName;
+        await file.save();
+
+        return res.status(200).json({
+          success: true,
+          file: {
+            id: file._id.toString(),
+            name: file.name,
+            type: file.type,
+          }
+        });
+      }
+
+      // Supabase path
+      const db = await getDb();
+
       // First get the current file to check ownership and get type
       const { data: file, error: fetchError } = await db
         .from('uploaded_files')
@@ -101,11 +138,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      const { error } = await db
-        .from('uploaded_files')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', userId);
+      const { error } = await deleteFile(id, userId);
 
       if (error) {
         console.error('Error deleting file:', error);

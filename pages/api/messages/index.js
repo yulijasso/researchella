@@ -1,6 +1,20 @@
-import { supabase } from '../../../lib/supabase';
-import { supabaseAdmin } from '../../../lib/supabaseServer';
 import { getAuth } from '@clerk/nextjs/server';
+import {
+  getSessionMessages,
+  insertMessage,
+  ensureSession,
+  useMongoDb,
+  getDb,
+} from '../../../lib/dbHelpers';
+
+// For MongoDB operations we need direct access
+let mongoLib = null;
+async function getMongoLib() {
+  if (!mongoLib && useMongoDb) {
+    mongoLib = await import('../../../lib/mongodb.js');
+  }
+  return mongoLib;
+}
 
 export default async function handler(req, res) {
   // Get authenticated user ID from Clerk
@@ -10,8 +24,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Please sign in' });
   }
 
-  // Use admin client to bypass RLS (since we use Clerk auth, not Supabase auth)
-  const db = supabaseAdmin || supabase;
+  console.log(`📦 Messages API using ${useMongoDb ? 'MongoDB' : 'Supabase'}`);
 
   try {
     // GET - Fetch all messages for a session
@@ -22,27 +35,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Verify the session belongs to the user
-      const { data: session } = await db
-        .from('sessions')
-        .select('id')
-        .eq('id', session_id)
-        .eq('user_id', userId)
-        .single();
-
-      if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
-      }
-
-      const { data, error } = await db
-        .from('messages')
-        .select('*')
-        .eq('session_id', session_id)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-
-      return res.status(200).json({ messages: data });
+      const messages = await getSessionMessages(session_id, userId);
+      return res.status(200).json({ messages });
     }
 
     // POST - Create a new message
@@ -53,31 +47,16 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID, role, and content are required' });
       }
 
-      // Verify the session belongs to the user
-      const { data: session } = await db
-        .from('sessions')
-        .select('id')
-        .eq('id', session_id)
-        .eq('user_id', userId)
-        .single();
+      // Ensure session exists
+      await ensureSession(session_id, userId);
 
-      if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
-      }
-
-      const { data, error } = await db
-        .from('messages')
-        .insert([
-          {
-            session_id,
-            user_id: userId,
-            role,
-            content,
-            citations: citations || null,
-          },
-        ])
-        .select()
-        .single();
+      const { data, error } = await insertMessage({
+        session_id,
+        user_id: userId,
+        role,
+        content,
+        sources: citations || null,
+      });
 
       if (error) throw error;
 
@@ -92,18 +71,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Verify the session belongs to the user
-      const { data: session } = await db
-        .from('sessions')
-        .select('id')
-        .eq('id', session_id)
-        .eq('user_id', userId)
-        .single();
-
-      if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
+      if (useMongoDb) {
+        const mongo = await getMongoLib();
+        await mongo.connectToDatabase();
+        await mongo.Message.deleteMany({ sessionId: session_id, userId });
+        return res.status(200).json({ success: true });
       }
 
+      // Supabase path
+      const db = await getDb();
       const { error } = await db
         .from('messages')
         .delete()

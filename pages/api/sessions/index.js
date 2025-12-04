@@ -1,6 +1,11 @@
-import { supabase } from '../../../lib/supabase';
-import { supabaseAdmin } from '../../../lib/supabaseServer';
 import { getAuth } from '@clerk/nextjs/server';
+import {
+  getUserSessions,
+  ensureSession,
+  updateSession,
+  deleteSession,
+  useMongoDb,
+} from '../../../lib/dbHelpers';
 
 export default async function handler(req, res) {
   // Get authenticated user ID from Clerk
@@ -10,21 +15,13 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Please sign in' });
   }
 
-  // Use admin client to bypass RLS (since we're using Clerk auth, not Supabase auth)
-  const db = supabaseAdmin || supabase;
+  console.log(`📦 Sessions API using ${useMongoDb ? 'MongoDB' : 'Supabase'}`);
 
   try {
     // GET - Fetch all sessions for the user
     if (req.method === 'GET') {
-      const { data, error } = await db
-        .from('sessions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      return res.status(200).json({ sessions: data });
+      const sessions = await getUserSessions(userId);
+      return res.status(200).json({ sessions });
     }
 
     // POST - Create a new session (or return existing one)
@@ -35,41 +32,19 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID and name are required' });
       }
 
-      // Use upsert to handle case where session might already exist
-      // This prevents duplicate key errors
-      const { data, error } = await db
-        .from('sessions')
-        .upsert(
-          {
-            id,
-            user_id: userId,
-            name,
-            tutoring_mode,
-            message_count: 0,
-          },
-          { onConflict: 'id', ignoreDuplicates: false }
-        )
-        .select()
-        .single();
+      // ensureSession creates or returns existing session
+      await ensureSession(id, userId, name);
 
-      if (error) {
-        console.error('Session upsert error:', error);
-        // If upsert fails, try to just return the existing session
-        if (error.code === '23505') { // Duplicate key
-          const { data: existing } = await db
-            .from('sessions')
-            .select('*')
-            .eq('id', id)
-            .eq('user_id', userId)
-            .single();
-          if (existing) {
-            return res.status(200).json({ session: existing });
-          }
+      // Return the session data
+      return res.status(201).json({
+        session: {
+          id,
+          user_id: userId,
+          name,
+          tutoring_mode,
+          message_count: 0,
         }
-        throw error;
-      }
-
-      return res.status(201).json({ session: data });
+      });
     }
 
     // PATCH - Update an existing session
@@ -88,26 +63,14 @@ export default async function handler(req, res) {
 
       console.log('Updates to apply:', updates);
 
-      const { data, error } = await db
-        .from('sessions')
-        .update(updates)
-        .eq('id', id)
-        .eq('user_id', userId)
-        .select();
-
-      console.log('Supabase response:', { data, error });
+      const { data, error } = await updateSession(id, userId, updates);
 
       if (error) {
-        console.error('Supabase update error:', error);
+        console.error('Session update error:', error);
         throw error;
       }
 
-      if (!data || data.length === 0) {
-        console.error('No session found to update. ID:', id, 'User:', userId);
-        return res.status(404).json({ error: 'Session not found or you do not have permission to update it' });
-      }
-
-      return res.status(200).json({ session: data[0] });
+      return res.status(200).json({ session: data });
     }
 
     // DELETE - Delete a session
@@ -118,12 +81,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID is required' });
       }
 
-      // Delete will cascade to messages and uploaded_files due to foreign key constraints
-      const { error } = await db
-        .from('sessions')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', userId);
+      const { error } = await deleteSession(id, userId);
 
       if (error) throw error;
 
