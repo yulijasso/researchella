@@ -24,7 +24,7 @@ import {
   InputGroup,
 } from "@chakra-ui/react";
 import Image from "next/image";
-import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2, FiUser, FiSave, FiHelpCircle, FiCheckCircle, FiDownload } from "react-icons/fi";
+import { FiMenu, FiPlus, FiSun, FiMoon, FiSend, FiX, FiUpload, FiFile, FiLink, FiCheck, FiArrowLeft, FiImage, FiExternalLink, FiTrash2, FiSearch, FiFileText, FiGlobe, FiMessageSquare, FiYoutube, FiCloud, FiMoreVertical, FiEdit2, FiUser, FiSave, FiHelpCircle, FiCheckCircle, FiDownload, FiAlertCircle } from "react-icons/fi";
 import { SiGoogledrive } from "react-icons/si";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useColorMode } from "@/components/ui/color-mode";
@@ -73,6 +73,8 @@ export default function Chat() {
   const [currentPdfData, setCurrentPdfData] = useState(null);
   const [currentPdfPage, setCurrentPdfPage] = useState(1);
   const [showSessionLimitModal, setShowSessionLimitModal] = useState(false);
+  const [showUploadFailedModal, setShowUploadFailedModal] = useState(false);
+  const [uploadFailedFileName, setUploadFailedFileName] = useState("");
   const [currentHighlightText, setCurrentHighlightText] = useState("");
   const [showUploadInterface, setShowUploadInterface] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -290,17 +292,18 @@ export default function Chat() {
                   // Remove the processing file on error
                   setUploadedFiles(prev => prev.filter(f => !(f.googleFileId === file.id && f.isProcessing)));
 
-                  let errorMessage = error.message;
-                  if (error.name === 'AbortError') {
-                    errorMessage = 'Timed out.';
+                  // Show modal for timeout or large file errors
+                  if (error.name === 'AbortError' || error.message?.includes('too large') || error.message?.includes('timeout')) {
+                    setUploadFailedFileName(file.name);
+                    setShowUploadFailedModal(true);
+                  } else {
+                    toaster.create({
+                      title: "Import Failed",
+                      description: error.message || "Could not import file",
+                      type: "error",
+                      duration: 7000,
+                    });
                   }
-
-                  toaster.create({
-                    title: "Import Failed",
-                    description: `${errorMessage} Large file support coming soon.`,
-                    type: "error",
-                    duration: 7000,
-                  });
                 } finally {
                   setIsUploading(false);
                 }
@@ -867,12 +870,8 @@ export default function Chat() {
     for (const file of files) {
       const fileSizeMB = file.size / (1024 * 1024);
       if (fileSizeMB > maxSizeMB) {
-        toaster.create({
-          title: "File Too Large",
-          description: `"${file.name}" is ${fileSizeMB.toFixed(1)}MB. Maximum allowed size is ${maxSizeMB}MB. Large file support coming soon.`,
-          type: "error",
-          duration: 7000,
-        });
+        setUploadFailedFileName(file.name);
+        setShowUploadFailedModal(true);
       } else {
         validFiles.push(file);
       }
@@ -1029,17 +1028,19 @@ export default function Chat() {
       } catch (error) {
         console.error(`Upload error for ${file.name}:`, error);
 
-        let errorMessage = error.message || "Failed to process the document.";
-        if (error.name === 'AbortError') {
-          errorMessage = `Timed out.`;
+        // Show modal for timeout or large file errors
+        if (error.name === 'AbortError' || error.message?.includes('too large') || error.message?.includes('timeout')) {
+          setUploadFailedFileName(file.name);
+          setShowUploadFailedModal(true);
+        } else {
+          // Show toast for other errors
+          toaster.create({
+            title: "Upload Failed",
+            description: `"${file.name}": ${error.message || "Failed to process the document."}`,
+            type: "error",
+            duration: 7000,
+          });
         }
-
-        toaster.create({
-          title: "Upload Failed",
-          description: `"${file.name}": ${errorMessage} Large file support coming soon.`,
-          type: "error",
-          duration: 7000,
-        });
 
         // Remove the processing file entry on error
         setUploadedFiles(prev => prev.filter(f => !(f.name === file.name && f.isProcessing)));
@@ -2681,6 +2682,84 @@ export default function Chat() {
               >
                 Dismiss
               </Button>
+            </VStack>
+          </Box>
+        </Box>
+      )}
+
+      {/* Upload Failed Modal - Professional Design */}
+      {showUploadFailedModal && (
+        <Box
+          position="fixed"
+          top="0"
+          left="0"
+          right="0"
+          bottom="0"
+          bg="blackAlpha.600"
+          zIndex="9999"
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          onClick={() => setShowUploadFailedModal(false)}
+        >
+          <Box
+            bg="white"
+            _dark={{ bg: "gray.800" }}
+            borderRadius="xl"
+            p={8}
+            maxW="400px"
+            w="90%"
+            textAlign="center"
+            boxShadow="2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Box
+              w="56px"
+              h="56px"
+              borderRadius="full"
+              bg="orange.100"
+              _dark={{ bg: "orange.900" }}
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              mx="auto"
+              mb={4}
+            >
+              <FiAlertCircle size={28} color="#F97316" />
+            </Box>
+
+            <Text fontWeight="600" fontSize="lg" mb={2} color="gray.800" _dark={{ color: "gray.100" }}>
+              Unable to Process File
+            </Text>
+
+            {uploadFailedFileName && (
+              <Text color="gray.500" _dark={{ color: "gray.400" }} fontSize="sm" mb={3} noOfLines={1}>
+                "{uploadFailedFileName}"
+              </Text>
+            )}
+
+            <Text color="gray.600" _dark={{ color: "gray.300" }} fontSize="sm" mb={6} lineHeight="tall">
+              This file exceeds our current processing limits. We're actively working on expanding support for larger files.
+            </Text>
+
+            <VStack gap={3}>
+              <Button
+                bg="gray.900"
+                color="white"
+                _hover={{ bg: "gray.800" }}
+                _dark={{ bg: "white", color: "gray.900", _hover: { bg: "gray.100" } }}
+                size="md"
+                w="full"
+                borderRadius="lg"
+                fontWeight="500"
+                onClick={() => setShowUploadFailedModal(false)}
+              >
+                Got it
+              </Button>
+
+              <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }}>
+                Large file support coming soon
+              </Text>
             </VStack>
           </Box>
         </Box>
