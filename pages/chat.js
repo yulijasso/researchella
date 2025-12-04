@@ -2737,7 +2737,7 @@ export default function Chat() {
               _dark={{ color: "gray.400", _hover: { color: "gray.200", bg: "gray.700" } }}
               onClick={() => setShowUploadFailedModal(false)}
             >
-              Dismiss
+              Got it
             </Button>
           </Box>
         </Box>
