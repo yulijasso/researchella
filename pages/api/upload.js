@@ -1071,28 +1071,37 @@ export default async function handler(req, res) {
     const db = supabaseAdmin || supabase;
     console.log(`🔑 Using ${supabaseAdmin ? 'supabaseAdmin (service role)' : 'regular supabase (anon key)'} for database`);
 
-    try {
-      const { data, error } = await db.from('uploaded_files').insert({
-        session_id: sessionId,
-        user_id: userId,
-        name: fileName,
-        type: fileType,
-        size: file.size,
-        chunks: result.count,
-        pages: pageCount,
-        pdf_data: fileBase64,
-      }).select();
+    // Save to database - MUST succeed for file to persist
+    const { data: savedFile, error: dbError } = await db.from('uploaded_files').insert({
+      session_id: sessionId,
+      user_id: userId,
+      name: fileName,
+      type: fileType,
+      size: file.size,
+      chunks: result.count,
+      pages: pageCount,
+      pdf_data: fileBase64,
+    }).select().single();
 
-      if (error) {
-        console.error('❌ Supabase insert error:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
-      } else {
-        console.log(`✅ Saved file metadata to Supabase: ${fileName} (ID: ${data?.[0]?.id})`);
+    if (dbError) {
+      console.error('❌ Supabase insert error:', dbError);
+      console.error('Error details:', JSON.stringify(dbError, null, 2));
+
+      // Check if it's a foreign key error (session doesn't exist)
+      if (dbError.code === '23503') {
+        return res.status(400).json({
+          error: 'Session not found. Please refresh the page and try again.',
+          details: dbError.message
+        });
       }
-    } catch (dbError) {
-      console.error('❌ Error saving file to Supabase:', dbError);
-      console.error('Error message:', dbError.message);
+
+      return res.status(500).json({
+        error: 'Failed to save file to database',
+        details: dbError.message
+      });
     }
+
+    console.log(`✅ Saved file metadata to Supabase: ${fileName} (ID: ${savedFile?.id})`);
 
     // Determine processing method for response
     const docType = documents[0]?.metadata?.type || 'unknown';
