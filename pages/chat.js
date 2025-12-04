@@ -72,6 +72,9 @@ export default function Chat() {
   const [pdfViewerVisible, setPdfViewerVisible] = useState(false);
   const [currentPdfData, setCurrentPdfData] = useState(null);
   const [currentPdfPage, setCurrentPdfPage] = useState(1);
+  const [gdriveViewerVisible, setGdriveViewerVisible] = useState(false);
+  const [currentGdriveFileId, setCurrentGdriveFileId] = useState(null);
+  const [currentGdriveFileName, setCurrentGdriveFileName] = useState("");
   const [showSessionLimitModal, setShowSessionLimitModal] = useState(false);
   const [showUploadFailedModal, setShowUploadFailedModal] = useState(false);
   const [uploadFailedFileName, setUploadFailedFileName] = useState("");
@@ -2064,8 +2067,10 @@ export default function Chat() {
                         setCurrentHighlightText(displayedText);
                         setPdfViewerVisible(true);
                       } else if (uploadedFile?.googleFileId) {
-                        // Open in Google Drive viewer for large PDFs
-                        window.open(`https://drive.google.com/file/d/${uploadedFile.googleFileId}/view`, '_blank');
+                        // Open in-app Google Drive viewer
+                        setCurrentGdriveFileId(uploadedFile.googleFileId);
+                        setCurrentGdriveFileName(uploadedFile.name);
+                        setGdriveViewerVisible(true);
                       }
                     }}
                     fontSize="xs"
@@ -2076,7 +2081,7 @@ export default function Chat() {
                   >
                     {(() => {
                       const uploadedFile = uploadedFiles.find(f => f.name === citation.source);
-                      return uploadedFile?.pdfData ? 'Open PDF' : (uploadedFile?.googleFileId ? 'View in Drive' : 'Open PDF');
+                      return uploadedFile?.pdfData ? 'Open PDF' : (uploadedFile?.googleFileId ? 'View File' : 'Open PDF');
                     })()}
                   </Button>
                 )}
@@ -3128,13 +3133,10 @@ export default function Chat() {
                               </Text>
                             )}
                           </VStack>
-                          {/* View in Drive button for Google Drive files */}
+                          {/* View button for Google Drive files */}
                           {!file.isProcessing && file.type === 'google-drive' && file.googleFileId && (
                             <Box
-                              as="a"
-                              href={`https://drive.google.com/file/d/${file.googleFileId}/view`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              as="button"
                               position="absolute"
                               top={2}
                               right={7}
@@ -3143,10 +3145,15 @@ export default function Chat() {
                               color="gray.400"
                               _dark={{ color: "gray.500" }}
                               _hover={{ color: "blue.500", _dark: { color: "blue.400" } }}
-                              onClick={(e) => e.stopPropagation()}
-                              aria-label="View in Google Drive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentGdriveFileId(file.googleFileId);
+                                setCurrentGdriveFileName(file.name);
+                                setGdriveViewerVisible(true);
+                              }}
+                              aria-label="View file"
                               zIndex={10}
-                              title="View in Google Drive"
+                              title="View file"
                             >
                               <FiExternalLink size={14} />
                             </Box>
@@ -5944,6 +5951,94 @@ export default function Chat() {
                 pdfData={currentPdfData}
                 pageNumber={currentPdfPage}
                 highlightText={currentHighlightText}
+              />
+            </Box>
+          </Box>
+        </>
+      )}
+
+      {/* Google Drive Viewer Modal */}
+      {gdriveViewerVisible && currentGdriveFileId && (
+        <>
+          <Box
+            position="fixed"
+            top={0}
+            left={0}
+            right={0}
+            bottom={0}
+            bg="blackAlpha.800"
+            zIndex={3000}
+            onClick={() => setGdriveViewerVisible(false)}
+          />
+          <Box
+            position="fixed"
+            top="5%"
+            left="5%"
+            right="5%"
+            bottom="5%"
+            bg="white"
+            _dark={{ bg: "gray.900" }}
+            borderRadius="xl"
+            boxShadow="2xl"
+            zIndex={3001}
+            overflow="hidden"
+            display="flex"
+            flexDirection="column"
+          >
+            {/* Header */}
+            <Flex
+              px={4}
+              py={3}
+              borderBottom="1px solid"
+              borderColor="gray.200"
+              _dark={{ borderColor: "gray.700" }}
+              justify="space-between"
+              align="center"
+              bg="gray.50"
+              _dark={{ bg: "gray.800" }}
+            >
+              <Text fontSize="md" fontWeight="600" noOfLines={1} maxW="80%">
+                {currentGdriveFileName || "Google Drive File"}
+              </Text>
+              <HStack gap={2}>
+                <Box
+                  as="a"
+                  href={`https://drive.google.com/file/d/${currentGdriveFileId}/view`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  color="gray.600"
+                  _dark={{ color: "gray.400" }}
+                  cursor="pointer"
+                  _hover={{ opacity: 0.7 }}
+                  p={1}
+                  title="Open in Google Drive"
+                >
+                  <FiExternalLink size={18} />
+                </Box>
+                <Box
+                  as="button"
+                  color="gray.600"
+                  _dark={{ color: "white" }}
+                  cursor="pointer"
+                  _hover={{ opacity: 0.7 }}
+                  onClick={() => setGdriveViewerVisible(false)}
+                  p={1}
+                  aria-label="Close viewer"
+                >
+                  <FiX size={20} />
+                </Box>
+              </HStack>
+            </Flex>
+
+            {/* Google Drive Preview iframe */}
+            <Box flex={1} overflow="hidden" bg="gray.100" _dark={{ bg: "gray.800" }}>
+              <iframe
+                src={`https://drive.google.com/file/d/${currentGdriveFileId}/preview`}
+                width="100%"
+                height="100%"
+                style={{ border: 'none' }}
+                allow="autoplay"
+                title="Google Drive Preview"
               />
             </Box>
           </Box>
