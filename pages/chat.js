@@ -3481,9 +3481,34 @@ export default function Chat() {
               />
             </Box>
             <VStack gap={0} align="start">
-              <Text fontWeight="bold" fontSize="md">
-                {sessionName || "Chat Session"}
-              </Text>
+              {isEditingSessionName ? (
+                <Input
+                  value={editedSessionName}
+                  onChange={(e) => setEditedSessionName(e.target.value)}
+                  onBlur={handleSessionNameUpdate}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSessionNameUpdate();
+                    if (e.key === 'Escape') setIsEditingSessionName(false);
+                  }}
+                  autoFocus
+                  size="sm"
+                  fontWeight="bold"
+                  w="200px"
+                />
+              ) : (
+                <Text
+                  fontWeight="bold"
+                  fontSize="md"
+                  cursor="pointer"
+                  _hover={{ opacity: 0.7 }}
+                  onClick={() => {
+                    setEditedSessionName(sessionName || "Chat Session");
+                    setIsEditingSessionName(true);
+                  }}
+                >
+                  {sessionName || "Chat Session"}
+                </Text>
+              )}
             </VStack>
             {uploadedFiles.length > 0 && (
               <HStack gap={2}>
@@ -4254,22 +4279,23 @@ export default function Chat() {
                           objectFit="cover"
                           borderRadius="lg"
                         />
-                        <IconButton
-                          icon={<FiX size={10} />}
-                          size="xs"
+                        <Box
+                          as="button"
                           position="absolute"
-                          top={0}
-                          right={0}
-                          variant="solid"
-                          bg="blackAlpha.600"
-                          color="white"
-                          borderRadius="full"
-                          minW="16px"
-                          h="16px"
+                          top={-1}
+                          right={-1}
+                          color="gray.500"
+                          fontSize="14px"
+                          fontWeight="300"
+                          lineHeight="1"
+                          cursor="pointer"
                           onClick={() => removeImage(idx)}
                           aria-label="Remove image"
-                          _hover={{ bg: "blackAlpha.800" }}
-                        />
+                          _hover={{ color: "gray.700" }}
+                          _dark={{ color: "gray.400", _hover: { color: "gray.200" } }}
+                        >
+                          ×
+                        </Box>
                       </Box>
                     ))}
                   </HStack>
