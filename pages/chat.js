@@ -5924,13 +5924,18 @@ export default function Chat() {
               <Text fontSize="md" fontWeight="600">
                 PDF Viewer
               </Text>
-              <IconButton
-                icon={<FiX />}
-                variant="ghost"
-                size="sm"
+              <Box
+                as="button"
+                color="gray.600"
+                _dark={{ color: "white" }}
+                cursor="pointer"
+                _hover={{ opacity: 0.7 }}
                 onClick={() => setPdfViewerVisible(false)}
+                p={1}
                 aria-label="Close PDF viewer"
-              />
+              >
+                <FiX size={20} />
+              </Box>
             </Flex>
 
             {/* PDF Viewer */}
