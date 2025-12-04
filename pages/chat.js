@@ -2742,10 +2742,6 @@ export default function Chat() {
               >
                 Got it
               </Button>
-
-              <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }}>
-                Large file support coming soon
-              </Text>
             </VStack>
           </Box>
         </Box>
