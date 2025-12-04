@@ -1006,16 +1006,11 @@ export default async function handler(req, res) {
     let documents = [];
     const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".svg"];
 
-    // Use FAST MODE for PDFs over 2MB - skips GPT cleaning for speed
-    const FAST_MODE_THRESHOLD = 2 * 1024 * 1024; // 2MB
-
+    // FAST MODE is now default for ALL PDFs - much faster processing
+    // Uses pdfplumber + regex cleaning instead of slow GPT-4o text cleaning
     if (fileExt === ".pdf") {
-      if (fileSize > FAST_MODE_THRESHOLD) {
-        console.log(`⚡ Large PDF detected (${Math.round(fileSize / 1024 / 1024)}MB) - using FAST MODE`);
-        documents = await processPDFFast(filePath, fileName, fileSize);
-      } else {
-        documents = await processPDF(filePath, fileName);
-      }
+      console.log(`⚡ Processing PDF in FAST MODE: ${fileName} (${Math.round(fileSize / 1024 / 1024 * 10) / 10}MB)`);
+      documents = await processPDFFast(filePath, fileName, fileSize);
     } else if (fileExt === ".txt" || fileExt === ".md" || fileExt === ".csv" || fileExt === ".json") {
       documents = await processTextFile(filePath, fileName);
     } else if (imageExtensions.includes(fileExt)) {
