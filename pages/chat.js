@@ -2913,7 +2913,7 @@ export default function Chat() {
 
               {webSearchResults.length > 0 && (
                 <VStack gap={2} align="stretch" mb={3}>
-                  <Text fontSize="xs" fontWeight="600" color="gray.600" _dark={{ color: "gray.400" }}>
+                  <Text fontSize="xs" fontWeight="600" color="gray.500" _dark={{ color: "gray.500" }} letterSpacing="0.5px">
                     SEARCH RESULTS ({webSearchResults.length})
                   </Text>
                   {webSearchResults.map((result, idx) => (
@@ -2921,37 +2921,64 @@ export default function Chat() {
                       key={idx}
                       p={3}
                       borderRadius="lg"
-                      bg="white"
-                      _dark={{ bg: "gray.800" }}
+                      bg="gray.50"
                       border="1px solid"
                       borderColor="gray.200"
-                      _dark={{ borderColor: "gray.700" }}
-                      transition="all 0.2s"
-                      _hover={{ borderColor: "#818CF8", shadow: "sm" }}
+                      _dark={{ bg: "gray.900", borderColor: "gray.800" }}
+                      _hover={{
+                        borderColor: "gray.300",
+                        bg: "gray.100",
+                        _dark: { borderColor: "gray.600", bg: "gray.800" }
+                      }}
+                      transition="all 0.15s ease"
+                      cursor="pointer"
                     >
-                      <VStack align="start" gap={2}>
-                        <VStack align="start" gap={0}>
-                          <Text fontSize="xs" fontWeight="600" noOfLines={2}>
+                      <HStack justify="space-between" align="start" gap={3}>
+                        <VStack align="start" gap={1} flex={1} minW={0}>
+                          <Text
+                            fontSize="sm"
+                            fontWeight="500"
+                            noOfLines={1}
+                            color="gray.800"
+                            _dark={{ color: "gray.100" }}
+                          >
                             {result.title}
                           </Text>
-                          <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }} noOfLines={2}>
+                          <Text
+                            fontSize="xs"
+                            color="gray.500"
+                            _dark={{ color: "gray.400" }}
+                            noOfLines={2}
+                            lineHeight="tall"
+                          >
                             {result.snippet}
                           </Text>
-                          <Text fontSize="xs" color="#4F46E5" _dark={{ color: "#818CF8" }} noOfLines={1}>
-                            {result.url}
+                          <Text
+                            fontSize="xs"
+                            color="gray.400"
+                            _dark={{ color: "gray.500" }}
+                            noOfLines={1}
+                          >
+                            {new URL(result.url).hostname.replace('www.', '')}
                           </Text>
                         </VStack>
-                        <Button
-                          size="xs"
-                          colorScheme="blue"
-                          w="full"
+                        <IconButton
+                          size="sm"
+                          variant="ghost"
+                          icon={<FiPlus />}
+                          aria-label="Add to sources"
                           onClick={() => handleAddWebSource(result)}
                           isLoading={isUploading}
-                          leftIcon={<FiPlus />}
-                        >
-                          Add to sources
-                        </Button>
-                      </VStack>
+                          color="gray.500"
+                          _hover={{
+                            bg: "gray.200",
+                            color: "gray.700",
+                            _dark: { bg: "gray.700", color: "white" }
+                          }}
+                          _dark={{ color: "gray.400" }}
+                          borderRadius="md"
+                        />
+                      </HStack>
                     </Box>
                   ))}
                 </VStack>
@@ -2963,13 +2990,12 @@ export default function Chat() {
                   mb={3}
                   textAlign="center"
                   bg="gray.50"
-                  _dark={{ bg: "gray.800" }}
                   borderRadius="lg"
                   border="1px solid"
                   borderColor="gray.200"
-                  _dark={{ borderColor: "gray.700" }}
+                  _dark={{ bg: "gray.900", borderColor: "gray.800" }}
                 >
-                  <Text fontSize="xs" color="gray.500" _dark={{ color: "gray.400" }}>
+                  <Text fontSize="xs" color="gray.400" _dark={{ color: "gray.500" }}>
                     Press Enter to search
                   </Text>
                 </Box>
