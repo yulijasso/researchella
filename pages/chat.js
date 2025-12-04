@@ -1128,19 +1128,26 @@ export default function Chat() {
       setIsEditingSessionName(false);
       return;
     }
+
+    const newName = editedSessionName.trim();
+    console.log('Renaming session:', { sessionId, oldName: sessionName, newName });
+
     try {
       const response = await fetch('/api/sessions', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: sessionId, name: editedSessionName.trim() }),
+        body: JSON.stringify({ id: sessionId, name: newName }),
       });
+
+      const responseData = await response.json();
+      console.log('Rename response:', { status: response.status, ok: response.ok, data: responseData });
+
       if (response.ok) {
-        setSessionName(editedSessionName.trim());
+        setSessionName(newName);
         toaster.create({ title: "Session renamed", type: "success", duration: 2000 });
       } else {
-        const errorData = await response.json();
-        console.error('Failed to rename session:', errorData);
-        toaster.create({ title: "Failed to rename", description: errorData.error || "Please try again", type: "error", duration: 3000 });
+        console.error('Failed to rename session:', responseData);
+        toaster.create({ title: "Failed to rename", description: responseData.error || "Please try again", type: "error", duration: 3000 });
       }
     } catch (error) {
       console.error('Error updating session name:', error);
