@@ -1,4 +1,5 @@
 import { supabase } from '../../../lib/supabase';
+import { supabaseAdmin } from '../../../lib/supabaseServer';
 import { getAuth } from '@clerk/nextjs/server';
 
 export default async function handler(req, res) {
@@ -9,10 +10,13 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized - Please sign in' });
   }
 
+  // Use admin client to bypass RLS (since we're using Clerk auth, not Supabase auth)
+  const db = supabaseAdmin || supabase;
+
   try {
     // GET - Fetch all sessions for the user
     if (req.method === 'GET') {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('sessions')
         .select('*')
         .eq('user_id', userId)
@@ -31,7 +35,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Session ID and name are required' });
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('sessions')
         .insert([
           {
@@ -66,7 +70,7 @@ export default async function handler(req, res) {
 
       console.log('Updates to apply:', updates);
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('sessions')
         .update(updates)
         .eq('id', id)
@@ -97,7 +101,7 @@ export default async function handler(req, res) {
       }
 
       // Delete will cascade to messages and uploaded_files due to foreign key constraints
-      const { error } = await supabase
+      const { error } = await db
         .from('sessions')
         .delete()
         .eq('id', id)
