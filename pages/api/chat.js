@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { findExactQuote, extractVerbatimQuotes, enhanceCitationsWithVerbatim } from '../../lib/verbatimMatcher';
 import { getTokenSafeMessages, processWithMemory } from '../../lib/conversationMemory';
 import { cleanTextWithGPT } from '../../lib/gptTextCleaner';
+import { rateLimit } from '../../lib/rateLimit';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -21,6 +22,10 @@ export default async function handler(req, res) {
   if (!userId) {
     return res.status(401).json({ error: 'Unauthorized - Please sign in' });
   }
+
+  // Check rate limit
+  const allowed = await rateLimit(req, res, userId, 'chat');
+  if (!allowed) return;
 
   try {
     let { messages, useRAG = true, sessionId = 'default', mentionedSources = null } = req.body;

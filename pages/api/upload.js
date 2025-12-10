@@ -9,6 +9,7 @@ import { safeInsertFile } from "../../lib/dbHelpers";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { cleanPDFText } from "../../lib/intelligentTextCleaner";
+import { rateLimit } from "../../lib/rateLimit";
 
 const execPromise = promisify(exec);
 
@@ -1087,6 +1088,10 @@ export default async function handler(req, res) {
   if (!userId) {
     return res.status(401).json({ error: "Unauthorized - Please sign in" });
   }
+
+  // Check rate limit
+  const allowed = await rateLimit(req, res, userId, 'upload');
+  if (!allowed) return;
 
   try {
     const uploadDir = path.join(process.cwd(), "data", "uploads");

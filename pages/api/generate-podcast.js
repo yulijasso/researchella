@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import { searchDocuments } from '../../lib/vectorStore';
 import { supabase } from '../../lib/supabase';
+import { getAuth } from '@clerk/nextjs/server';
+import { rateLimit } from '../../lib/rateLimit';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -62,6 +64,16 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Get authenticated user ID from Clerk
+  const { userId } = getAuth(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized - Please sign in' });
+  }
+
+  // Check rate limit
+  const allowed = await rateLimit(req, res, userId, 'generate');
+  if (!allowed) return;
 
   try {
     const { sessionId = 'default' } = req.body;
