@@ -1,40 +1,142 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# Researchella
+
+A NotebookLM-style AI research assistant that lets you upload documents and have intelligent conversations with your research materials.
+
+## Features
+
+### Document Sources
+- **PDF Upload** - Upload and process PDF documents with OCR support
+- **Image Upload** - Analyze images with GPT-4 Vision
+- **Text Input** - Add plain text notes directly
+- **Web Scraping** - Import content from any webpage
+- **YouTube** - Extract transcripts from YouTube videos
+- **Google Drive** - Import files directly from Google Drive
+- **OneDrive** - Import files from Microsoft OneDrive
+
+### AI-Powered Generation
+- **Chat** - Conversational RAG-powered Q&A with citations
+- **Quiz Generator** - Auto-generate quizzes from your documents
+- **Flashcards** - Create study flashcards
+- **Podcast** - Generate audio overviews of your content
+- **Research Report** - Comprehensive document summaries
+- **Mind Map** - Visual concept mapping
+- **Video Overview** - Generate video summaries
+
+### Additional Features
+- Multi-session support with persistent history
+- Semantic citation extraction with verbatim quotes
+- User authentication via Clerk
+- Rate limiting with Upstash Redis
+
+## Tech Stack
+
+- **Framework:** Next.js 16 (Pages Router)
+- **UI:** Chakra UI
+- **Auth:** Clerk
+- **Vector Store:** Pinecone
+- **LLM:** OpenAI GPT-4o
+- **Database:** Turso (SQLite)
+- **Rate Limiting:** Upstash Redis
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js >= 18.0.0
+- Python 3 (for PDF processing)
+
+### Installation
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Clone the repository
+git clone https://github.com/yulijasso/researchella.git
+cd researchella
+
+# Install dependencies
+npm install
+
+# Set up Python virtual environment (for PDF processing)
+python3 -m venv venv
+source venv/bin/activate
+pip install pdfplumber pymupdf
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Environment Variables
 
-You can start editing the page by modifying `pages/index.js`. The page auto-updates as you edit the file.
+Create a `.env.local` file with the following:
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.js`.
+```env
+# OpenAI API
+OPENAI_API_KEY=your-openai-key
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+# Pinecone Vector Store
+PINECONE_API_KEY=your-pinecone-key
+PINECONE_INDEX_NAME=your-index-name
+PINECONE_ENVIRONMENT=your-environment
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your-clerk-publishable-key
+CLERK_SECRET_KEY=your-clerk-secret-key
 
-## Learn More
+# Turso Database
+TURSO_DATABASE_URL=your-turso-url
+TURSO_AUTH_TOKEN=your-turso-token
 
-To learn more about Next.js, take a look at the following resources:
+# Rate Limiting (optional)
+UPSTASH_REDIS_REST_URL=your-upstash-url
+UPSTASH_REDIS_REST_TOKEN=your-upstash-token
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
+# Google Integration (optional)
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id
+NEXT_PUBLIC_GOOGLE_API_KEY=your-google-api-key
+GOOGLE_SEARCH_API_KEY=your-search-api-key
+GOOGLE_SEARCH_ENGINE_ID=your-search-engine-id
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Running the App
 
-## Deploy on Vercel
+```bash
+# Development
+npm run dev
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Production build
+npm run build
+npm start
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000) to view the app.
+
+## API Rate Limits
+
+| Endpoint | Limit |
+|----------|-------|
+| Chat | 20 requests/min |
+| Upload | 50 requests/min |
+| Generate (quiz, flashcards, etc.) | 5 requests/min |
+| Web scraping | 15 requests/min |
+| Default | 60 requests/min |
+
+Rate limiting is optional - disabled if Upstash credentials are not configured.
+
+## Project Structure
+
+```
+├── pages/
+│   ├── api/           # API routes
+│   │   ├── chat.js    # Main chat endpoint
+│   │   ├── upload.js  # File upload processing
+│   │   └── generate-* # Content generation endpoints
+│   ├── index.js       # Landing page
+│   ├── chat.js        # Chat interface
+│   └── sessions.js    # Session management
+├── components/        # React components
+├── lib/              # Utility modules
+│   ├── vectorStore.js
+│   ├── rateLimit.js
+│   └── dbHelpers.js
+└── contexts/         # React contexts
+```
+
+## License
+
+MIT
